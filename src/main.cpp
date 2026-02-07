@@ -125,6 +125,7 @@ void sendIR(const IRData &d) {
         case GREE:    irsend.sendGree(d.val, d.bits); break;
         case KELON:   irsend.sendKelon(d.val); break;
         case TECO:    irsend.sendTeco(d.val, d.bits, 2); break;
+        case HAIER_AC: irsend.sendHaierAC(d.val, d.bits); break;
         default:
             terminal.println("❌ Unsupported protocol: " + String(typeToString(d.proto)));
             terminal.flush();

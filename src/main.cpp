@@ -334,7 +334,7 @@ bool requireDevice()
 // ────────────────────────────────────────────────
 // Blynk: Device selector → forces LEARN mode
 // ────────────────────────────────────────────────
-BLYNK_WRITE(V10)
+BLYNK_WRITE(V12)
 {
     hideAll();
     currentMode = LEARN_MODE;
@@ -402,62 +402,116 @@ BLYNK_WRITE(V10)
             sel = rawInt - 1;
     }
 
-    if (sel == 0)
+    // if (sel == 0)
+    // {
+    //     currentDevice = AC1;
+    //     showAC();
+    //     terminal.println("🌀 AC 1 selected");
+    // }
+    // else if (sel == 1)
+    // {
+    //     currentDevice = AC2;
+    //     showAC();
+    //     terminal.println("🌀 AC 2 selected");
+    // }
+    // else if (sel == 2)
+    // {
+    //     currentDevice = AC3;
+    //     showAC();
+    //     terminal.println("🌀 AC 3 selected");
+    // }
+    // else if (sel == 3)
+    // {
+    //     currentDevice = FAN1;
+    //     showFan();
+    //     terminal.println("🌀 FAN 1 selected");
+    // }
+    // else if (sel == 4)
+    // {
+    //     currentDevice = FAN2;
+    //     showFan();
+    //     terminal.println("🌀 FAN 2 selected");
+    // }
+    // else if (sel == 5)
+    // {
+    //     currentDevice = TV1;
+    //     showTV();
+    //     terminal.println("📺 TV 1 selected");
+    // }
+    // else if (sel == 6)
+    // {
+    //     currentDevice = TV2;
+    //     showTV();
+    //     terminal.println("📺 TV 2 selected");
+    // }
+    // else if (sel == 7)
+    // {
+    //     currentDevice = PROJECTOR1;
+    //     showPROJECTOR();
+    //     terminal.println("📽 Projector 1 selected");
+    // }
+    // else if (sel == 8)
+    // {
+    //     currentDevice = PROJECTOR2;
+    //     showPROJECTOR();
+    //     terminal.println("📽 Projector 2 selected");
+    // }
+    // else
+    // {
+    //     terminal.println("⚠️ Unknown selection");
+    //     terminal.flush();
+    //     return;
+    // }
+    // terminal.printf("Parsed selection: %d\n", sel);
+
+    switch (sel)
     {
+    case 0:
         currentDevice = AC1;
         showAC();
         terminal.println("🌀 AC 1 selected");
-    }
-    else if (sel == 1)
-    {
+        break;
+    case 1:
         currentDevice = AC2;
         showAC();
         terminal.println("🌀 AC 2 selected");
-    }
-    else if (sel == 2)
-    {
+        break;
+    case 2:
         currentDevice = AC3;
         showAC();
         terminal.println("🌀 AC 3 selected");
-    }
-    else if (sel == 3)
-    {
+        break;
+    case 3:
         currentDevice = FAN1;
         showFan();
         terminal.println("🌀 FAN 1 selected");
-    }
-    else if (sel == 4)
-    {
+        break;
+    case 4:
         currentDevice = FAN2;
         showFan();
         terminal.println("🌀 FAN 2 selected");
-    }
-    else if (sel == 5)
-    {
+        break;
+    case 5:
         currentDevice = TV1;
         showTV();
         terminal.println("📺 TV 1 selected");
-    }
-    else if (sel == 6)
-    {
+        break;
+    case 6:
         currentDevice = TV2;
         showTV();
         terminal.println("📺 TV 2 selected");
-    }
-    else if (sel == 7)
-    {
+        break;
+    case 7:
         currentDevice = PROJECTOR1;
         showPROJECTOR();
         terminal.println("📽 Projector 1 selected");
-    }
-    else if (sel == 8)
-    {
+        break;
+    case 8:
         currentDevice = PROJECTOR2;
         showPROJECTOR();
         terminal.println("📽 Projector 2 selected");
-    }
-    else
-    {
+        break;
+    default:
         terminal.println("⚠️ Unknown selection");
         terminal.flush();
         return;

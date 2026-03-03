@@ -16,8 +16,8 @@
 // ────────────────────────────────────────────────
 // WiFi credentials
 // ────────────────────────────────────────────────
-char ssid[] = "HONOR 200";
-char pass[] = "swampyae2005";
+char ssid[] = "Xiaomi 15T Pro";
+char pass[] = "d0ntc0nnect";
 
 // ────────────────────────────────────────────────
 // Blynk
@@ -32,11 +32,15 @@ WidgetTerminal terminal(V4);
 #define BUTTON_PIN 27
 #define IR_RECV_PIN 14
 #define IR_SEND_PIN 4
+constexpr uint16_t IR_RECV_BUFFER_SIZE = 1024;
+constexpr uint8_t IR_RECV_TIMEOUT_MS = 50;
+constexpr uint16_t IR_RAW_FALLBACK_HZ = 38;
+constexpr uint16_t IR_RAW_STORE_MAX = 300;
 
 // ────────────────────────────────────────────────
 // IR objects
 // ────────────────────────────────────────────────
-IRrecv irrecv(IR_RECV_PIN);
+IRrecv irrecv(IR_RECV_PIN, IR_RECV_BUFFER_SIZE, IR_RECV_TIMEOUT_MS, true);
 IRsend irsend(IR_SEND_PIN);
 decode_results results;
 
@@ -97,6 +101,10 @@ struct IRData
     decode_type_t proto = UNKNOWN;
     uint64_t val = 0;
     uint16_t bits = 0;
+    uint8_t state[kStateSizeMax] = {0};
+    uint16_t stateLen = 0;
+    uint16_t raw[IR_RAW_STORE_MAX] = {0};
+    uint16_t rawLen = 0;
 
     IRData() = default;
     IRData(decode_type_t p, uint64_t v, uint16_t b)
@@ -114,6 +122,8 @@ IRData acOn[3];
 IRData acOff[3];
 IRData acTemp[3][TEMP_COUNT];
 int learnTemp = -1;
+int acLastTempSet[3] = {TEMP_MAX, TEMP_MAX, TEMP_MAX};
+bool acLastTempValid[3] = {false, false, false};
 
 // ────────────────────────────────────────────────
 // Fan (FAN1..FAN2)
@@ -232,40 +242,204 @@ String devicePrefix()
 // ────────────────────────────────────────────────
 // Send IR command
 // ────────────────────────────────────────────────
+String slotBaseFromProtoKey(const String &protoKey)
+{
+    if (protoKey.endsWith("_p") && protoKey.length() > 2)
+        return protoKey.substring(0, protoKey.length() - 2);
+    return protoKey;
+}
+
+IRData loadIRDataFromPrefs(const String &protoKey, const String &valKey, const String &bitsKey)
+{
+    IRData d(
+        (decode_type_t)prefs.getUChar(protoKey.c_str(), 0),
+        prefs.getULong64(valKey.c_str(), 0),
+        prefs.getUInt(bitsKey.c_str(), 0));
+
+    String base = slotBaseFromProtoKey(protoKey);
+    String stateLenKey = base + "_sl";
+    String stateKey = base + "_s";
+    d.stateLen = prefs.getUShort(stateLenKey.c_str(), 0);
+    if (d.stateLen > kStateSizeMax)
+        d.stateLen = kStateSizeMax;
+    if (d.stateLen > 0)
+    {
+        size_t expectedStateBytes = d.stateLen;
+        size_t foundStateBytes = prefs.getBytesLength(stateKey.c_str());
+        if (foundStateBytes >= expectedStateBytes)
+            prefs.getBytes(stateKey.c_str(), d.state, expectedStateBytes);
+        else
+            d.stateLen = 0;
+    }
+
+    String rawLenKey = base + "_rl";
+    String rawKey = base + "_r";
+    d.rawLen = prefs.getUShort(rawLenKey.c_str(), 0);
+    if (d.rawLen > IR_RAW_STORE_MAX)
+        d.rawLen = IR_RAW_STORE_MAX;
+    if (d.rawLen > 0)
+    {
+        size_t expectedRawBytes = (size_t)d.rawLen * sizeof(uint16_t);
+        size_t foundRawBytes = prefs.getBytesLength(rawKey.c_str());
+        if (foundRawBytes >= expectedRawBytes)
+            prefs.getBytes(rawKey.c_str(), d.raw, expectedRawBytes);
+        else
+            d.rawLen = 0;
+    }
+
+    return d;
+}
+
+void saveIRDataToPrefs(const String &protoKey, const String &valKey, const String &bitsKey, const IRData &d)
+{
+    prefs.putUChar(protoKey.c_str(), (uint8_t)d.proto);
+    prefs.putULong64(valKey.c_str(), d.val);
+    prefs.putUInt(bitsKey.c_str(), d.bits);
+
+    String base = slotBaseFromProtoKey(protoKey);
+    String stateLenKey = base + "_sl";
+    String stateKey = base + "_s";
+    prefs.putUShort(stateLenKey.c_str(), d.stateLen);
+    if (d.stateLen > 0)
+        prefs.putBytes(stateKey.c_str(), d.state, d.stateLen);
+    else
+        prefs.remove(stateKey.c_str());
+
+    String rawLenKey = base + "_rl";
+    String rawKey = base + "_r";
+    prefs.putUShort(rawLenKey.c_str(), d.rawLen);
+    if (d.rawLen > 0)
+        prefs.putBytes(rawKey.c_str(), d.raw, (size_t)d.rawLen * sizeof(uint16_t));
+    else
+        prefs.remove(rawKey.c_str());
+}
+
+bool decodeResultToIRData(const decode_results &src, IRData &out)
+{
+    out = IRData();
+    out.proto = src.decode_type;
+
+    if (hasACState(src.decode_type))
+    {
+        uint16_t stateBytes = (src.bits + 7) / 8;
+        if (stateBytes == 0)
+            return false;
+        if (stateBytes > kStateSizeMax)
+            stateBytes = kStateSizeMax;
+        memcpy(out.state, src.state, stateBytes);
+        out.stateLen = stateBytes;
+        out.bits = src.bits;
+        return true;
+    }
+
+    if (src.decode_type == UNKNOWN)
+    {
+        if (src.rawlen <= 1)
+            return false;
+
+        uint16_t correctedRawLen = getCorrectedRawLength(&src);
+        if (correctedRawLen == 0)
+            return false;
+
+        uint16_t *rawArray = resultToRawArray(&src);
+        if (rawArray == nullptr)
+            return false;
+
+        out.rawLen = correctedRawLen;
+        if (out.rawLen > IR_RAW_STORE_MAX)
+            out.rawLen = IR_RAW_STORE_MAX;
+
+        memcpy(out.raw, rawArray, (size_t)out.rawLen * sizeof(uint16_t));
+        delete[] rawArray;
+
+        return out.rawLen > 0;
+    }
+
+    if (src.bits == 0 || src.value == UINT64_MAX)
+        return false;
+
+    out.val = src.value;
+    out.bits = src.bits;
+    return true;
+}
+
+bool hasIRPayload(const IRData &d)
+{
+    if (d.proto == UNKNOWN)
+        return d.rawLen > 0;
+    if (hasACState(d.proto))
+        return d.stateLen > 0;
+    return d.bits > 0 && d.val != UINT64_MAX;
+}
+
 void sendIR(const IRData &d)
 {
-    if (d.proto == UNKNOWN || d.val == 0)
+    bool sent = false;
+    String protoStr = typeToString(d.proto);
+
+    if (hasACState(d.proto) && d.stateLen > 0)
+        sent = irsend.send(d.proto, d.state, d.stateLen);
+
+    if (!sent && d.proto == UNKNOWN && d.rawLen == 0)
     {
         terminal.println("⚠️ Empty / invalid IR data");
         terminal.flush();
         return;
     }
 
-    switch (d.proto)
+    bool usesLegacySwitch = d.proto == NEC || d.proto == SONY || d.proto == SAMSUNG ||
+                            d.proto == LG || d.proto == COOLIX || d.proto == GREE ||
+                            d.proto == KELON || d.proto == TECO;
+    if (!sent && !usesLegacySwitch && d.proto != UNKNOWN && d.bits > 0 && d.val != UINT64_MAX)
+        sent = irsend.send(d.proto, d.val, d.bits);
+
+    if (!sent && d.proto == UNKNOWN && d.rawLen > 0)
+    {
+        irsend.sendRaw(d.raw, d.rawLen, IR_RAW_FALLBACK_HZ);
+        sent = true;
+    }
+
+    if (!sent && !usesLegacySwitch)
+    {
+        terminal.println("Empty / unsupported IR data");
+        terminal.flush();
+        return;
+    }
+
+    if (!sent && usesLegacySwitch)
+        switch (d.proto)
     {
     case NEC:
         irsend.sendNEC(d.val, d.bits);
+        sent = true;
         break;
     case SONY:
         irsend.sendSony(d.val, d.bits);
+        sent = true;
         break;
     case SAMSUNG:
         irsend.sendSAMSUNG(d.val, d.bits);
+        sent = true;
         break;
     case LG:
         irsend.sendLG(d.val, d.bits);
+        sent = true;
         break;
     case COOLIX:
         irsend.sendCOOLIX(d.val);
+        sent = true;
         break;
     case GREE:
         irsend.sendGree(d.val, d.bits);
+        sent = true;
         break;
     case KELON:
         irsend.sendKelon(d.val);
+        sent = true;
         break;
     case TECO:
         irsend.sendTeco(d.val, d.bits, 2);
+        sent = true;
         break;
     default:
         terminal.println("❌ Unsupported protocol: " + String(typeToString(d.proto)));
@@ -275,11 +449,24 @@ void sendIR(const IRData &d)
 
     terminal.println("📡 IR SENT");
     terminal.print("Protocol: ");
-    terminal.println(typeToString(d.proto));
-    terminal.print("Code: 0x");
-    terminal.println(d.val, HEX);
-    terminal.print("Bits: ");
-    terminal.println(d.bits);
+    terminal.println(protoStr);
+    if (d.proto == UNKNOWN && d.rawLen > 0)
+    {
+        terminal.print("Raw timings: ");
+        terminal.println(d.rawLen);
+    }
+    else if (hasACState(d.proto) && d.stateLen > 0)
+    {
+        terminal.print("State bytes: ");
+        terminal.println(d.stateLen);
+    }
+    else
+    {
+        terminal.print("Code: 0x");
+        terminal.println(d.val, HEX);
+        terminal.print("Bits: ");
+        terminal.println(d.bits);
+    }
     terminal.flush();
 }
 
@@ -556,7 +743,11 @@ BLYNK_WRITE(V7)
         terminal.printf("🌡 Sending %d°C command\n", t);
         int idx = currentIndex();
         if (idx >= 0)
+        {
             sendIR(acTemp[idx][t - TEMP_MIN]);
+            acLastTempSet[idx] = t;
+            acLastTempValid[idx] = true;
+        }
     }
     terminal.flush();
 }
@@ -579,7 +770,22 @@ BLYNK_WRITE(V0)
         terminal.println("🔌 Turning AC ON...");
         int idx = currentIndex();
         if (idx >= 0)
-            sendIR(acOn[idx]);
+        {
+            bool sentTempState = false;
+            if (acLastTempValid[idx])
+            {
+                int tempIdx = acLastTempSet[idx] - TEMP_MIN;
+                if (tempIdx >= 0 && tempIdx < TEMP_COUNT && hasIRPayload(acTemp[idx][tempIdx]))
+                {
+                    terminal.printf("🌡 Restoring last temp: %d°C\n", acLastTempSet[idx]);
+                    sendIR(acTemp[idx][tempIdx]);
+                    sentTempState = true;
+                }
+            }
+
+            if (!sentTempState)
+                sendIR(acOn[idx]);
+        }
     }
     terminal.flush();
 }
@@ -780,25 +986,15 @@ void setup()
     for (int ac = 0; ac < 3; ac++)
     {
         String prefix = "ac" + String(ac + 1) + "_";
-        acOn[ac] = IRData(
-            (decode_type_t)prefs.getUChar((prefix + "on_p").c_str(), 0),
-            prefs.getULong64((prefix + "on_v").c_str(), 0),
-            prefs.getUInt((prefix + "on_b").c_str(), 0));
-
-        acOff[ac] = IRData(
-            (decode_type_t)prefs.getUChar((prefix + "off_p").c_str(), 0),
-            prefs.getULong64((prefix + "off_v").c_str(), 0),
-            prefs.getUInt((prefix + "off_b").c_str(), 0));
+        acOn[ac] = loadIRDataFromPrefs(prefix + "on_p", prefix + "on_v", prefix + "on_b");
+        acOff[ac] = loadIRDataFromPrefs(prefix + "off_p", prefix + "off_v", prefix + "off_b");
 
         for (int i = 0; i < TEMP_COUNT; i++)
         {
             String p = prefix + "t" + String(i) + "_p";
             String v = prefix + "t" + String(i) + "_v";
             String b = prefix + "t" + String(i) + "_b";
-            acTemp[ac][i] = IRData(
-                (decode_type_t)prefs.getUChar(p.c_str(), 0),
-                prefs.getULong64(v.c_str(), 0),
-                prefs.getUInt(b.c_str(), 0));
+            acTemp[ac][i] = loadIRDataFromPrefs(p, v, b);
         }
     }
 
@@ -806,25 +1002,15 @@ void setup()
     for (int fan = 0; fan < 2; fan++)
     {
         String prefix = "fan" + String(fan + 1) + "_";
-        fanPower[fan] = IRData(
-            (decode_type_t)prefs.getUChar((prefix + "p").c_str(), 0),
-            prefs.getULong64((prefix + "v").c_str(), 0),
-            prefs.getUInt((prefix + "b").c_str(), 0));
-
-        fanSwing[fan] = IRData(
-            (decode_type_t)prefs.getUChar((prefix + "swing_p").c_str(), 0),
-            prefs.getULong64((prefix + "swing_v").c_str(), 0),
-            prefs.getUInt((prefix + "swing_b").c_str(), 0));
+        fanPower[fan] = loadIRDataFromPrefs(prefix + "p", prefix + "v", prefix + "b");
+        fanSwing[fan] = loadIRDataFromPrefs(prefix + "swing_p", prefix + "swing_v", prefix + "swing_b");
 
         for (int i = 0; i < 3; i++)
         {
             String p = prefix + "sp" + String(i) + "_p";
             String v = prefix + "sp" + String(i) + "_v";
             String b = prefix + "sp" + String(i) + "_b";
-            fanSpeed[fan][i] = IRData(
-                (decode_type_t)prefs.getUChar(p.c_str(), 0),
-                prefs.getULong64(v.c_str(), 0),
-                prefs.getUInt(b.c_str(), 0));
+            fanSpeed[fan][i] = loadIRDataFromPrefs(p, v, b);
         }
     }
 
@@ -832,20 +1018,14 @@ void setup()
     for (int tv = 0; tv < 2; tv++)
     {
         String prefix = "tv" + String(tv + 1) + "_";
-        tvPower[tv] = IRData(
-            (decode_type_t)prefs.getUChar((prefix + "p").c_str(), 0),
-            prefs.getULong64((prefix + "v").c_str(), 0),
-            prefs.getUInt((prefix + "b").c_str(), 0));
+        tvPower[tv] = loadIRDataFromPrefs(prefix + "p", prefix + "v", prefix + "b");
 
         for (int ch = 0; ch < TV_CHANNEL_COUNT; ch++)
         {
             String p = prefix + "ch" + String(ch) + "_p";
             String v = prefix + "ch" + String(ch) + "_v";
             String b = prefix + "ch" + String(ch) + "_b";
-            tvChannel[tv][ch] = IRData(
-                (decode_type_t)prefs.getUChar(p.c_str(), 0),
-                prefs.getULong64(v.c_str(), 0),
-                prefs.getUInt(b.c_str(), 0));
+            tvChannel[tv][ch] = loadIRDataFromPrefs(p, v, b);
         }
     }
 
@@ -853,10 +1033,7 @@ void setup()
     for (int pr = 0; pr < 2; pr++)
     {
         String prefix = "proj" + String(pr + 1) + "_";
-        projectorPower[pr] = IRData(
-            (decode_type_t)prefs.getUChar((prefix + "p").c_str(), 0),
-            prefs.getULong64((prefix + "v").c_str(), 0),
-            prefs.getUInt((prefix + "b").c_str(), 0));
+        projectorPower[pr] = loadIRDataFromPrefs(prefix + "p", prefix + "v", prefix + "b");
     }
 
     prefs.end();
@@ -923,8 +1100,8 @@ void loop()
     // Learn mode – capture IR signal
     if (currentMode == LEARN_MODE && irrecv.decode(&results))
     {
-        // Ignore invalid / repeats
-        if (results.decode_type == UNKNOWN || results.repeat || results.bits == 0 || results.value == 0xFFFFFFFFFFFFFFFF)
+        // Ignore repeats / overflow captures
+        if (results.repeat || results.overflow)
         {
             Serial.println("⚠️ IR invalid/repeat ignored");
             terminal.println("⚠️ IR invalid/repeat ignored");
@@ -933,9 +1110,20 @@ void loop()
             return;
         }
 
+        IRData captured;
+        if (!decodeResultToIRData(results, captured))
+        {
+            Serial.println("IR decode unsupported/invalid");
+            terminal.println("IR decode unsupported/invalid");
+            terminal.flush();
+            irrecv.resume();
+            return;
+        }
+
         prefs.begin("ir", false);
 
         String prefix = devicePrefix();
+        String protoStr = typeToString(captured.proto);
 
         if (learnTemp != -1)
         {
@@ -943,15 +1131,13 @@ void loop()
             int dev = currentIndex();
             if (dev >= 0 && currentGroup() == GROUP_AC)
             {
-                acTemp[dev][idx] = IRData(results.decode_type, results.value, results.bits);
+                acTemp[dev][idx] = captured;
                 String p = prefix + "t" + String(idx) + "_p";
                 String v = prefix + "t" + String(idx) + "_v";
                 String b = prefix + "t" + String(idx) + "_b";
-                prefs.putUChar(p.c_str(), results.decode_type);
-                prefs.putULong64(v.c_str(), results.value);
-                prefs.putUInt(b.c_str(), results.bits);
+                saveIRDataToPrefs(p, v, b, acTemp[dev][idx]);
             }
-            terminal.printf("✅ Saved %s for %d°C\n", typeToString(results.decode_type).c_str(), learnTemp);
+            terminal.printf("✅ Saved %s for %d°C\n", protoStr.c_str(), learnTemp);
             learnTemp = -1;
         }
         else if (learnChannel != -1)
@@ -959,15 +1145,13 @@ void loop()
             int dev = currentIndex();
             if (dev >= 0 && currentGroup() == GROUP_TV)
             {
-                tvChannel[dev][learnChannel] = IRData(results.decode_type, results.value, results.bits);
+                tvChannel[dev][learnChannel] = captured;
                 String p = prefix + "ch" + String(learnChannel) + "_p";
                 String v = prefix + "ch" + String(learnChannel) + "_v";
                 String b = prefix + "ch" + String(learnChannel) + "_b";
-                prefs.putUChar(p.c_str(), results.decode_type);
-                prefs.putULong64(v.c_str(), results.value);
-                prefs.putUInt(b.c_str(), results.bits);
+                saveIRDataToPrefs(p, v, b, tvChannel[dev][learnChannel]);
             }
-            terminal.printf("✅ Saved %s for channel %d\n", typeToString(results.decode_type).c_str(), learnChannel + 1);
+            terminal.printf("✅ Saved %s for channel %d\n", protoStr.c_str(), learnChannel + 1);
             learnChannel = -1;
         }
         else if (learnFanSpeed != -1)
@@ -976,20 +1160,17 @@ void loop()
             int dev = currentIndex();
             if (dev >= 0 && currentGroup() == GROUP_FAN)
             {
-                fanSpeed[dev][idx] = IRData(results.decode_type, results.value, results.bits);
+                fanSpeed[dev][idx] = captured;
                 String p = prefix + "sp" + String(idx) + "_p";
                 String v = prefix + "sp" + String(idx) + "_v";
                 String b = prefix + "sp" + String(idx) + "_b";
-                prefs.putUChar(p.c_str(), results.decode_type);
-                prefs.putULong64(v.c_str(), results.value);
-                prefs.putUInt(b.c_str(), results.bits);
+                saveIRDataToPrefs(p, v, b, fanSpeed[dev][idx]);
             }
-            terminal.printf("✅ Saved %s for FAN SPEED %d\n", typeToString(results.decode_type).c_str(), idx + 1);
+            terminal.printf("✅ Saved %s for FAN SPEED %d\n", protoStr.c_str(), idx + 1);
             learnFanSpeed = -1;
         }
         else if (currentLearn != LEARN_NONE)
         {
-            String protoStr = typeToString(results.decode_type);
             switch (currentLearn)
             {
             case LEARN_AC_ON:
@@ -997,10 +1178,8 @@ void loop()
                 int dev = currentIndex();
                 if (dev >= 0 && currentGroup() == GROUP_AC)
                 {
-                    acOn[dev] = IRData(results.decode_type, results.value, results.bits);
-                    prefs.putUChar((prefix + "on_p").c_str(), results.decode_type);
-                    prefs.putULong64((prefix + "on_v").c_str(), results.value);
-                    prefs.putUInt((prefix + "on_b").c_str(), results.bits);
+                    acOn[dev] = captured;
+                    saveIRDataToPrefs(prefix + "on_p", prefix + "on_v", prefix + "on_b", acOn[dev]);
                     terminal.printf("✅ Saved %s for AC ON\n", protoStr.c_str());
                 }
                 break;
@@ -1010,10 +1189,8 @@ void loop()
                 int dev = currentIndex();
                 if (dev >= 0 && currentGroup() == GROUP_AC)
                 {
-                    acOff[dev] = IRData(results.decode_type, results.value, results.bits);
-                    prefs.putUChar((prefix + "off_p").c_str(), results.decode_type);
-                    prefs.putULong64((prefix + "off_v").c_str(), results.value);
-                    prefs.putUInt((prefix + "off_b").c_str(), results.bits);
+                    acOff[dev] = captured;
+                    saveIRDataToPrefs(prefix + "off_p", prefix + "off_v", prefix + "off_b", acOff[dev]);
                     terminal.printf("✅ Saved %s for AC OFF\n", protoStr.c_str());
                 }
                 break;
@@ -1023,10 +1200,8 @@ void loop()
                 int dev = currentIndex();
                 if (dev >= 0 && currentGroup() == GROUP_FAN)
                 {
-                    fanPower[dev] = IRData(results.decode_type, results.value, results.bits);
-                    prefs.putUChar((prefix + "p").c_str(), results.decode_type);
-                    prefs.putULong64((prefix + "v").c_str(), results.value);
-                    prefs.putUInt((prefix + "b").c_str(), results.bits);
+                    fanPower[dev] = captured;
+                    saveIRDataToPrefs(prefix + "p", prefix + "v", prefix + "b", fanPower[dev]);
                     terminal.printf("✅ Saved %s for FAN POWER\n", protoStr.c_str());
                 }
                 break;
@@ -1036,10 +1211,8 @@ void loop()
                 int dev = currentIndex();
                 if (dev >= 0 && currentGroup() == GROUP_FAN)
                 {
-                    fanSwing[dev] = IRData(results.decode_type, results.value, results.bits);
-                    prefs.putUChar((prefix + "swing_p").c_str(), results.decode_type);
-                    prefs.putULong64((prefix + "swing_v").c_str(), results.value);
-                    prefs.putUInt((prefix + "swing_b").c_str(), results.bits);
+                    fanSwing[dev] = captured;
+                    saveIRDataToPrefs(prefix + "swing_p", prefix + "swing_v", prefix + "swing_b", fanSwing[dev]);
                     terminal.printf("✅ Saved %s for FAN SWING\n", protoStr.c_str());
                 }
                 break;
@@ -1049,10 +1222,8 @@ void loop()
                 int dev = currentIndex();
                 if (dev >= 0 && currentGroup() == GROUP_TV)
                 {
-                    tvPower[dev] = IRData(results.decode_type, results.value, results.bits);
-                    prefs.putUChar((prefix + "p").c_str(), results.decode_type);
-                    prefs.putULong64((prefix + "v").c_str(), results.value);
-                    prefs.putUInt((prefix + "b").c_str(), results.bits);
+                    tvPower[dev] = captured;
+                    saveIRDataToPrefs(prefix + "p", prefix + "v", prefix + "b", tvPower[dev]);
                     terminal.printf("✅ Saved %s for TV POWER\n", protoStr.c_str());
                 }
                 break;
@@ -1062,10 +1233,8 @@ void loop()
                 int dev = currentIndex();
                 if (dev >= 0 && currentGroup() == GROUP_PROJECTOR)
                 {
-                    projectorPower[dev] = IRData(results.decode_type, results.value, results.bits);
-                    prefs.putUChar((prefix + "p").c_str(), results.decode_type);
-                    prefs.putULong64((prefix + "v").c_str(), results.value);
-                    prefs.putUInt((prefix + "b").c_str(), results.bits);
+                    projectorPower[dev] = captured;
+                    saveIRDataToPrefs(prefix + "p", prefix + "v", prefix + "b", projectorPower[dev]);
                     terminal.printf("✅ Saved %s for PROJECTOR POWER\n", protoStr.c_str());
                 }
                 break;

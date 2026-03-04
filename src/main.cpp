@@ -57,7 +57,7 @@ enum Mode
     LEARN_MODE,
     SEND_MODE
 };
-Mode currentMode = LEARN_MODE;
+Mode currentMode = SEND_MODE;
 
 // ────────────────────────────────────────────────
 // Device selection
@@ -521,11 +521,47 @@ bool requireDevice()
 // ────────────────────────────────────────────────
 // Blynk: Device selector → forces LEARN mode
 // ────────────────────────────────────────────────
+void syncModeIndicators()
+{
+    int isSend = (currentMode == SEND_MODE) ? 1 : 0;
+    digitalWrite(LED_PIN, isSend ? HIGH : LOW);
+    Blynk.virtualWrite(V13, isSend);
+    Blynk.virtualWrite(V14, isSend);
+}
+BLYNK_CONNECTED()
+{
+    syncModeIndicators();
+}
+
+BLYNK_WRITE(V13)
+{
+    int req = param.asInt();
+    Mode requestedMode = (req == 1) ? SEND_MODE : LEARN_MODE;
+
+    if (currentDevice == NONE)
+    {
+        terminal.println("Choose the device first.");
+        terminal.flush();
+        syncModeIndicators();
+        return;
+    }
+
+    if (currentMode != requestedMode)
+    {
+        currentMode = requestedMode;
+        const char *modeStr = (currentMode == LEARN_MODE) ? "LEARN" : "SEND";
+        terminal.printf("Mode: %s (from Blynk)\n", modeStr);
+        Serial.printf("[BLYNK] Mode -> %s\n", modeStr);
+        terminal.flush();
+    }
+
+    syncModeIndicators();
+}
 BLYNK_WRITE(V12)
 {
     hideAll();
-    currentMode = LEARN_MODE;
-    digitalWrite(LED_PIN, LOW);
+    // Keep current mode after selecting a device.
+    syncModeIndicators();
 
     // Support both numeric values and Menu selector strings
     int sel = -1;
@@ -705,7 +741,7 @@ BLYNK_WRITE(V12)
     }
 
     Blynk.setProperty(V10, "isHidden", true);
-    terminal.println("🔁 Mode: LEARN");
+    terminal.printf("Mode: %s\n", currentMode == LEARN_MODE ? "LEARN" : "SEND");
     terminal.flush();
 }
 
@@ -964,8 +1000,8 @@ void setup()
 
     pinMode(LED_PIN, OUTPUT);
     pinMode(BUTTON_PIN, INPUT_PULLUP);
-    digitalWrite(LED_PIN, LOW);
-    Serial.println("[BOOT] LED set to OFF (learn mode)");
+    digitalWrite(LED_PIN, currentMode == SEND_MODE ? HIGH : LOW);
+    Serial.println("[BOOT] LED set by current mode");
 
     Serial.print("[BOOT] Connecting to WiFi: ");
     Serial.println(ssid);
@@ -978,6 +1014,7 @@ void setup()
     irsend.begin();
 
     hideAll();
+    syncModeIndicators();
 
     // Load saved codes
     prefs.begin("ir", true);
@@ -1040,7 +1077,7 @@ void setup()
 
     terminal.clear();
     terminal.println("✅ SYSTEM READY");
-    terminal.println("Current mode: LEARN (press physical button to toggle after selecting device)");
+    terminal.println("Current mode: SEND (press physical button to toggle after selecting device)");
     terminal.flush();
 
     Serial.println("[BOOT] Setup complete");
@@ -1060,7 +1097,7 @@ void toggleMode()
     }
 
     currentMode = (currentMode == LEARN_MODE) ? SEND_MODE : LEARN_MODE;
-    digitalWrite(LED_PIN, currentMode == SEND_MODE ? HIGH : LOW);
+    syncModeIndicators();
 
     const char *modeStr = (currentMode == LEARN_MODE) ? "LEARN" : "SEND";
     terminal.printf("🔁 Mode: %s (LED %s)\n", modeStr, currentMode == SEND_MODE ? "ON" : "OFF");

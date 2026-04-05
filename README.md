@@ -1,185 +1,242 @@
-# IoT-based Universal Remote Controller (ESP32 + Blynk + IR)
+# IoT Universal Remote with Firebase (React + Express + ESP32)
 
-This project turns an ESP32 into a learnable, internet-connected IR remote that can control:
+This implementation now uses Firebase for user-scoped IR storage.
 
-- AC units (3 profiles: `AC1..AC3`)
-- Fans (2 profiles: `FAN1..FAN2`)
-- TVs (2 profiles: `TV1..TV2`)
-- Projectors (2 profiles: `PROJECTOR1..PROJECTOR2`)
+- Frontend: Firebase Auth (email/password + Google)
+- Backend: Firebase Admin token verification + Firestore storage
+- ESP32: stateless IR capture/send API (`/learn`, `/send`)
 
-It supports two operating modes:
+## Final Data Model (Firestore)
 
-- `LEARN_MODE`: capture IR from original remotes and store permanently in ESP32 NVS
-- `SEND_MODE`: transmit stored commands from Blynk controls
+Document path:
 
-The firmware currently boots in `SEND_MODE`.
+```text
+users/{uid}
+```
 
-## 1) Key Features
+Document structure:
 
-- Learn and store IR commands per device profile
-- Supports normal decoded protocols and fallback for unknown/raw captures
-- AC-friendly handling:
-- stores full state payloads for AC protocols when available
-- stores raw timings for unknown AC remotes when decoding fails
-- Mode control from both:
-- physical button (`GPIO27`)
-- Blynk switch (`V13`)
-- Physical LED and Blynk LED stay synchronized:
-- physical LED on `GPIO26`
-- Blynk status LED on `V14`
-- Startup mode is `SEND_MODE`
-- Device selection (`V12`) no longer forces learn mode; current mode is preserved
+```json
+{
+  "devices": {
+    "TV1": {
+      "type": "TV",
+      "commands": {
+        "power": {
+          "protocol": "NEC",
+          "value": 12345,
+          "bits": 32,
+          "raw": []
+        }
+      }
+    },
+    "AC1": {
+      "type": "AC",
+      "commands": {
+        "temp_24": {
+          "protocol": "RAW",
+          "value": 0,
+          "bits": 0,
+          "raw": [9000, 4500, 560]
+        }
+      }
+    }
+  }
+}
+```
 
-## 2) Hardware Requirements
+## Folder Structure
 
-- ESP32 development board
-- IR receiver module (for learning)
-- IR LED + proper driver stage/transistor (for transmitting)
-- Push button (mode toggle)
-- Indicator LED (mode state)
-- Stable 5V/USB power
+```text
+.
++- src/
+¦  +- main.cpp
++- platformio.ini
++- backend/
+¦  +- .env
+¦  +- .env.example
+¦  +- package.json
+¦  +- src/
+¦     +- firebaseAdmin.js
+¦     +- authMiddleware.js
+¦     +- server.js
++- frontend/
+   +- .env.example
+   +- package.json
+   +- src/
+      +- firebase.js
+      +- App.jsx
+      +- App.css
+      +- main.jsx
+```
 
-## 3) Pin Mapping (ESP32)
+## ESP32 API
 
-From `src/main.cpp`:
+### `GET /health`
+Health + IP.
 
-- `IR_RECV_PIN` = `GPIO14`
-- `IR_SEND_PIN` = `GPIO4`
-- `BUTTON_PIN` = `GPIO27`
-- `LED_PIN` = `GPIO26`
+### `GET /learn`
+- Waits for an IR signal.
+- Query option: `timeoutMs` (default 15000).
+- Returns:
 
-Mode LED behavior:
+```json
+{
+  "success": true,
+  "protocol": "NEC",
+  "value": 12345,
+  "bits": 32,
+  "raw": []
+}
+```
 
-- `SEND_MODE` -> LED ON
-- `LEARN_MODE` -> LED OFF
+For AC/unknown signal types it returns raw timings in `raw`.
 
-## 4) Software Stack
+### `POST /send`
+Body:
 
-Configured in `platformio.ini`:
+```json
+{
+  "protocol": "NEC",
+  "value": 12345,
+  "bits": 32,
+  "raw": []
+}
+```
 
-- Platform: `espressif32`
-- Board: `esp32dev`
-- Framework: `arduino`
-- Libraries:
-- `crankyoldgit/IRremoteESP8266`
-- `blynkkk/Blynk@^1.3.2`
+If `raw` has values, raw transmission is used.
 
-## 5) Blynk Virtual Pin Map
+## Backend API
 
-### Core UI / Mode
+All protected routes require:
 
-- `V4`: Terminal output (`WidgetTerminal`)
-- `V12`: Device selector menu
-- `V11`: Back to selector
-- `V13`: Mode switch (`0=LEARN`, `1=SEND`)
-- `V14`: Mode indicator LED (`0=LEARN`, `1=SEND`)
+```http
+Authorization: Bearer <Firebase ID Token>
+```
 
-### Device Actions
+### `POST /api/learn`
+Input:
 
-- `V0`: AC ON
-- `V1`: AC OFF
-- `V7`: AC temperature (`17..25`)
-- `V2`: Fan power
-- `V6`: Fan swing
-- `V5`: Fan speed (`1..3`)
-- `V8`: TV power
-- `V9`: TV channel (`1..9`)
-- `V3`: Projector power
+```json
+{
+  "deviceName": "TV1",
+  "commandName": "power"
+}
+```
 
-### Visibility helper widget
+Flow:
+1. Calls `ESP32 /learn`
+2. Saves result under `users/{uid}.devices.{deviceName}.commands.{commandName}`
 
-- `V10`: Used as the device selection view/container visibility control
+### `POST /api/send`
+Input:
 
-## 6) Device Selector Values (`V12`)
+```json
+{
+  "deviceName": "TV1",
+  "commandName": "power"
+}
+```
 
-The firmware accepts either numeric selection or label-like text.
+Flow:
+1. Reads command IR from Firestore for logged-in user
+2. Calls `ESP32 /send` with that IR payload
 
-Numeric mapping:
+### `GET /api/devices`
+Returns all user devices + commands.
 
-- `0`: AC1
-- `1`: AC2
-- `2`: AC3
-- `3`: FAN1
-- `4`: FAN2
-- `5`: TV1
-- `6`: TV2
-- `7`: PROJECTOR1
-- `8`: PROJECTOR2
+## Frontend Features
 
-Text parsing supports names containing `AC`, `FAN`, `TV`, `PROJECTOR` plus index number.
+- Register with email/password
+- Login with email/password
+- Google sign-in
+- Dashboard:
+  - Device name input
+  - Command name input
+  - Learn IR button
+  - Send IR button
+  - Device/command list for current user
 
-## 7) Mode Behavior and Sync
+## Detailed Setup Instructions
 
-### Sources of mode change
+## 1) Firebase Setup
 
-- Physical button on `GPIO27` (`toggleMode()`)
-- Blynk switch `V13`
+1. Create a Firebase project.
+2. Enable Authentication providers:
+   - Email/Password
+   - Google
+3. Create Firestore database.
+4. Generate service account key:
+   - Firebase Console -> Project Settings -> Service Accounts -> Generate private key
+5. Create web app in Firebase and copy config values.
 
-### Sync rules
+## 2) Backend Setup
 
-`syncModeIndicators()` updates all mode indicators together:
+```bash
+cd backend
+npm install
+```
 
-- physical LED (`GPIO26`)
-- `V13` switch state
-- `V14` LED state
+Create `backend/.env`:
 
-`BLYNK_CONNECTED()` calls `syncModeIndicators()` so app UI re-syncs after reconnect.
+```env
+PORT=3000
+ESP32_BASE_URL=http://<ESP32_IP>
+FIREBASE_SERVICE_ACCOUNT_PATH=./serviceAccountKey.json
+```
 
-### Important guard
+Alternative instead of path:
 
-Mode change is blocked if no device is selected (`currentDevice == NONE`).
+```env
+FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
+```
 
-## 8) Learn Workflow
+Place `serviceAccountKey.json` inside `backend/` if using path mode.
 
-1. Select a device in `V12`.
-2. Set mode to `LEARN` from physical button or `V13`.
-3. Press the target Blynk control you want to learn:
-- AC ON/OFF (`V0`, `V1`)
-- AC temp (`V7`) choose value first, then send matching remote command
-- Fan power/swing/speed (`V2`, `V6`, `V5`)
-- TV power/channel (`V8`, `V9`)
-- Projector power (`V3`)
-4. Point original remote at receiver and press key.
-5. Firmware stores IR data in NVS (`Preferences`, namespace `ir`).
+Run backend:
 
-### Capture handling
+```bash
+npm run dev
+```
 
-- Repeats and overflow captures are ignored
-- Decoded AC state payloads are stored as state bytes
-- Unknown decodes are stored as raw timings (fallback)
+## 3) Frontend Setup
 
-## 9) Send Workflow
+```bash
+cd frontend
+npm install
+```
 
-1. Select device (`V12`).
-2. Set mode to `SEND` (`V13=1` or physical button).
-3. Use action controls to transmit stored IR.
+Create `frontend/.env`:
 
-### AC ON behavior
+```env
+VITE_API_BASE_URL=http://localhost:3000
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=...
+VITE_FIREBASE_PROJECT_ID=...
+VITE_FIREBASE_STORAGE_BUCKET=...
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_FIREBASE_APP_ID=...
+```
 
-When sending AC ON:
+Run frontend:
 
-- If a last temperature was sent in this runtime and that temp command exists, firmware sends that temp state first
-- Otherwise it sends learned AC ON command
+```bash
+npm run dev
+```
 
-This improves stateful AC behavior for remotes that encode full state in each frame.
+Open `http://localhost:5173`.
 
-## 10) IR Storage Model (NVS)
+## 4) ESP32 Setup
 
-Each command slot can store:
+1. Open `src/main.cpp`
+2. Set Wi-Fi values:
 
-- protocol type + value + bits (classic)
-- optional AC state bytes (`stateLen/state`)
-- optional raw timing array (`rawLen/raw`)
+```cpp
+const char *WIFI_SSID = "YOUR_WIFI_SSID";
+const char *WIFI_PASS = "YOUR_WIFI_PASSWORD";
+```
 
-This gives compatibility for:
-
-- standard protocols (e.g. NEC)
-- complex AC protocols
-- unknown remotes via raw fallback replay
-
-## 11) Build and Upload
-
-From project root:
+3. Build/upload:
 
 ```bash
 pio run
@@ -187,46 +244,34 @@ pio run -t upload
 pio device monitor
 ```
 
-If `pio` is not in PATH, install PlatformIO CLI or use VS Code PlatformIO extension.
+4. Read ESP32 IP from serial output.
+5. Put that IP in backend `.env` as `ESP32_BASE_URL`.
 
-## 12) First-Time Setup Checklist
+## 5) Firestore Security Rules
 
-1. Update credentials in `src/main.cpp`:
-- `BLYNK_TEMPLATE_ID`
-- `BLYNK_TEMPLATE_NAME`
-- `BLYNK_AUTH_TOKEN`
-- Wi-Fi `ssid` / `pass`
-2. Create matching Blynk datastreams/widgets for all pins listed above.
-3. Flash firmware.
-4. Open serial monitor and Blynk terminal (`V4`).
-5. Select a device and start learning required keys.
+Use per-user isolation:
 
-## 13) Troubleshooting
+```javascript
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
+```
 
-### "Choose the device first"
+## 6) End-to-End Test
 
-Select one of AC/FAN/TV/PROJECTOR profiles in `V12` before mode toggle or actions.
+1. Login in frontend.
+2. Set `deviceName=TV1`, `commandName=power`.
+3. Click **Learn IR** and press remote key.
+4. Click **Refresh Devices** and verify command appears.
+5. Click **Send IR** and verify target device receives the command.
 
-### Learned signal sends nothing
+## Notes
 
-- Verify learning was done for that exact control slot
-- Check IR LED drive circuit and orientation
-- Check device profile index (e.g. AC1 vs AC2)
-
-### AC turns on but wrong temp/state
-
-- Re-learn temperature/state commands for that AC profile
-- Use temperature slider in send mode so runtime remembers latest temp state
-
-### Unknown protocol in logs
-
-This is expected for some remotes. Raw fallback capture/replay is implemented.
-
-## 14) Security Notes
-
-Do not commit real Wi-Fi credentials or Blynk auth tokens to public repositories.
-Use environment-specific secrets management for production.
-
----
-
-If you want, I can also generate a matching Blynk widget setup table (widget type, min/max, push mode) so your dashboard can be recreated exactly.
+- ESP32 does not store your user command library long-term.
+- Firestore is the source of truth.
+- Commands are isolated per authenticated user UID.

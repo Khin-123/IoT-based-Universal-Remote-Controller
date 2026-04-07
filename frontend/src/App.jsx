@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
@@ -7,21 +7,25 @@ import {
   signInWithPopup,
   signOut,
 } from "firebase/auth";
-import { auth } from "./firebase";
+import { doc, setDoc } from "firebase/firestore";
+import { auth, db } from "./firebase";
 import "./App.css";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:3000").replace(/\/+$/, "");
-const DEVICE_TYPES = ["TV", "AC", "FAN", "PROJECTOR", "UNKNOWN"];
-const NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
+// Allow spaces and most symbols, but block "." and "/" to keep Firestore update paths safe.
+const NAME_PATTERN = /^[^./\n\r\t]+$/;
+const DEVICE_TYPE_OPTIONS = ["TV", "AC", "FAN", "PROJECTOR"];
+const DEFAULT_CONTROL_VALUES = {
+  acTemp: 24,
+  acMode: "cooling",
+  tvVolume: 5,
+  tvChannel: 1,
+  fanSpeed: 1,
+};
 
 async function apiCall(path, { method = "GET", token, body } = {}) {
-  const headers = {
-    Authorization: `Bearer ${token}`,
-  };
-
-  if (body !== undefined) {
-    headers["Content-Type"] = "application/json";
-  }
+  const headers = { Authorization: `Bearer ${token}` };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
@@ -44,30 +48,64 @@ async function apiCall(path, { method = "GET", token, body } = {}) {
   return payload;
 }
 
+async function queuePendingCommand(uid, deviceName, commandName) {
+  await setDoc(
+    doc(db, "commands", uid),
+    {
+      pending: {
+        device: deviceName,
+        command: commandName,
+        timestamp: Date.now(),
+      },
+    },
+    { merge: true }
+  );
+}
+
 function isValidName(value) {
   return NAME_PATTERN.test(String(value || "").trim());
 }
 
+function inferDeviceType(deviceName) {
+  const upper = String(deviceName || "").toUpperCase();
+  if (upper.startsWith("TV")) return "TV";
+  if (upper.startsWith("AC")) return "AC";
+  if (upper.startsWith("FAN")) return "FAN";
+  if (upper.startsWith("PROJECTOR")) return "PROJECTOR";
+  return "UNKNOWN";
+}
+
+function normalizeDeviceType(type, deviceName) {
+  const normalized = String(type || "").trim().toUpperCase();
+  if (DEVICE_TYPE_OPTIONS.includes(normalized)) return normalized;
+  return inferDeviceType(deviceName);
+}
+
+function labelForMode(viewMode) {
+  if (viewMode === "add") return "Learn";
+  if (viewMode === "edit") return "Edit";
+  if (viewMode === "send") return "Send";
+  return "Idle";
+}
+
 function AuthCard({
   busy,
-  canSubmitAuth,
+  isRegister,
   email,
   password,
-  isRegister,
-  message,
+  status,
+  onToggle,
+  onSubmit,
+  onGoogle,
   setEmail,
   setPassword,
-  setIsRegister,
-  handleEmailAuth,
-  handleGoogleLogin,
 }) {
   return (
-    <section className="auth-shell">
-      <section className="card auth-card">
-        <h1>Smart IR Remote</h1>
-        <p className="subtle">Sign in to manage your personal IR command library.</p>
+    <section className="auth-wrap">
+      <section className="auth-card">
+        <h1>Smart IR Remote Hub</h1>
 
-        <form onSubmit={handleEmailAuth} className="form-grid auth-form">
+        <form className="auth-form" onSubmit={onSubmit}>
           <label>
             Email
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
@@ -78,156 +116,35 @@ function AuthCard({
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           </label>
 
-          <button type="submit" disabled={busy || !canSubmitAuth}>
+          <button type="submit" disabled={busy || !email.trim() || !password.trim()}>
             {isRegister ? "Register" : "Login"}
           </button>
         </form>
 
-        <div className="auth-actions">
-          <button className="secondary" onClick={handleGoogleLogin} disabled={busy}>
-            Continue with Google
-          </button>
-
-          <button className="link" onClick={() => setIsRegister((s) => !s)} disabled={busy}>
+        <div className="auth-buttons">
+          <button className="ghost" onClick={onGoogle} disabled={busy}>Continue with Google</button>
+          <button className="link" onClick={onToggle} disabled={busy}>
             {isRegister ? "Already have an account? Login" : "Need an account? Register"}
           </button>
         </div>
 
-        <p className="status">{busy ? "Working..." : message}</p>
+        <p className="terminal-line">{busy ? "Working..." : status}</p>
       </section>
     </section>
   );
 }
 
-function CreateDeviceCard({
-  newDeviceName,
-  setNewDeviceName,
-  newDeviceType,
-  setNewDeviceType,
-  newCommandName,
-  setNewCommandName,
-  onLearn,
-  disabled,
-}) {
+function TerminalPanel({ logs, status }) {
   return (
-    <section className="card section-card">
-      <h2>Create Device + Learn First Command</h2>
-      <p className="subtle">Use simple names like TV1, AC1, FAN1. Command names can be power, volume-up, temp-24.</p>
-
-      <div className="form-grid tri">
-        <label>
-          Device Name
-          <input
-            value={newDeviceName}
-            onChange={(e) => setNewDeviceName(e.target.value)}
-            placeholder="TV1"
-          />
-        </label>
-
-        <label>
-          Device Type
-          <select value={newDeviceType} onChange={(e) => setNewDeviceType(e.target.value)}>
-            {DEVICE_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label>
-          First Command
-          <input
-            value={newCommandName}
-            onChange={(e) => setNewCommandName(e.target.value)}
-            placeholder="power"
-          />
-        </label>
+    <section className="terminal-card">
+      <header className="terminal-head">Terminal</header>
+      <div className="terminal-body">
+        <div className="terminal-line">{status}</div>
+        {logs.length === 0
+          ? <div className="terminal-line">No events</div>
+          : logs.map((entry) => <div key={entry.id} className="terminal-line">{entry.text}</div>)}
       </div>
-
-      <button onClick={onLearn} disabled={disabled}>Learn First Command</button>
     </section>
-  );
-}
-
-function DeviceCard({
-  device,
-  busy,
-  learnInput,
-  setLearnInput,
-  editingDevice,
-  renameValue,
-  setRenameValue,
-  onStartRename,
-  onCancelRename,
-  onSaveRename,
-  onLearn,
-  onSend,
-  onDelete,
-}) {
-  const commandNames = Object.keys(device.commands || {}).sort((a, b) => a.localeCompare(b));
-  const isEditing = editingDevice === device.deviceName;
-
-  return (
-    <article className="card device-card">
-      <header className="device-head">
-        <div>
-          <h3>{device.deviceName}</h3>
-          <span className="type-pill">{device.type || "UNKNOWN"}</span>
-        </div>
-
-        {!isEditing ? (
-          <button className="secondary" onClick={() => onStartRename(device.deviceName)} disabled={busy}>
-            Rename
-          </button>
-        ) : (
-          <div className="row-actions">
-            <button onClick={() => onSaveRename(device.deviceName)} disabled={busy}>Save</button>
-            <button className="secondary" onClick={onCancelRename} disabled={busy}>Cancel</button>
-          </div>
-        )}
-      </header>
-
-      {isEditing && (
-        <label className="inline-field">
-          New Name
-          <input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} placeholder="New device name" />
-        </label>
-      )}
-
-      <section className="commands-block">
-        <h4>Commands</h4>
-        {commandNames.length === 0 ? (
-          <p className="subtle">No commands saved yet.</p>
-        ) : (
-          <div className="command-list">
-            {commandNames.map((commandName) => (
-              <div key={commandName} className="command-row">
-                <span className="command-name">{commandName}</span>
-                <div className="row-actions">
-                  <button onClick={() => onSend(device.deviceName, commandName)} disabled={busy}>Send</button>
-                  <button className="danger" onClick={() => onDelete(device.deviceName, commandName)} disabled={busy}>
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="learn-inline">
-        <label className="inline-field">
-          Learn New Command
-          <input
-            value={learnInput}
-            onChange={(e) => setLearnInput(device.deviceName, e.target.value)}
-            placeholder="e.g. mute"
-          />
-        </label>
-        <button onClick={() => onLearn(device)} disabled={busy || !learnInput.trim()}>Learn</button>
-      </section>
-    </article>
   );
 }
 
@@ -239,56 +156,330 @@ export default function App() {
   const [password, setPassword] = useState("");
 
   const [devices, setDevices] = useState([]);
-  const [newDeviceName, setNewDeviceName] = useState("TV1");
-  const [newDeviceType, setNewDeviceType] = useState("TV");
-  const [newCommandName, setNewCommandName] = useState("power");
-
-  const [learnInputs, setLearnInputs] = useState({});
-  const [editingDevice, setEditingDevice] = useState("");
-  const [renameValue, setRenameValue] = useState("");
-
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("Ready.");
+  const [status, setStatus] = useState("Ready.");
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
-      setUser(nextUser);
-      setAuthReady(true);
-      if (!nextUser) {
-        setDevices([]);
-      }
-    });
+  const [viewMode, setViewMode] = useState("idle");
+  const [draftType, setDraftType] = useState("TV");
+  const [draftDeviceName, setDraftDeviceName] = useState("TV1");
+  const [editDeviceName, setEditDeviceName] = useState("");
+  const [activeDeviceName, setActiveDeviceName] = useState("");
+  const [pendingLearnCount, setPendingLearnCount] = useState(0);
 
-    return () => unsubscribe();
-  }, []);
+  const [controlValues, setControlValues] = useState(DEFAULT_CONTROL_VALUES);
+  const [logs, setLogs] = useState([]);
 
   const sortedDevices = useMemo(
     () => [...devices].sort((a, b) => a.deviceName.localeCompare(b.deviceName)),
     [devices]
   );
 
-  const canSubmitAuth = useMemo(() => email.trim() && password.trim(), [email, password]);
+  const activeDevice = useMemo(
+    () => sortedDevices.find((d) => d.deviceName === activeDeviceName) || null,
+    [sortedDevices, activeDeviceName]
+  );
+
+  const activeType = useMemo(() => {
+    if (viewMode === "add") return draftType;
+    if (!activeDevice) return "UNKNOWN";
+    return normalizeDeviceType(activeDevice.type, activeDevice.deviceName);
+  }, [viewMode, draftType, activeDevice]);
+
+  const canSaveNew = viewMode === "add" && isValidName(draftDeviceName) && pendingLearnCount > 0;
+  // In edit mode, allow "Save Changes" even if nothing was learned/changed (acts like "Done").
+  const canSaveEdit = viewMode === "edit" && !!activeDevice;
+
+  function addLog(message) {
+    const timestamp = new Date().toLocaleTimeString();
+    const entry = {
+      id: `${Date.now()}-${Math.random()}`,
+      text: `[${timestamp}] ${message}`,
+    };
+    setLogs((prev) => [entry, ...prev].slice(0, 80));
+  }
 
   async function getToken() {
     return user.getIdToken();
   }
 
-  async function refreshDevices(token, statusMessage = "Device list refreshed.") {
+  async function loadDevices(token, successMessage = "Devices loaded.") {
     const payload = await apiCall("/api/devices", { method: "GET", token });
-    setDevices(payload.devices || []);
-    setMessage(statusMessage);
+    const normalized = (payload.devices || []).map((device) => ({
+      ...device,
+      type: normalizeDeviceType(device.type, device.deviceName),
+      commands: device.commands || {},
+    }));
+
+    setDevices(normalized);
+    setStatus(successMessage);
   }
 
-  async function runAction(action, fn) {
+  async function runAction(label, fn) {
     setBusy(true);
     try {
       await fn();
     } catch (error) {
-      setMessage(`${action} failed: ${error.message}`);
+      const msg = `${label} failed: ${error.message}`;
+      setStatus(msg);
+      addLog(msg);
     } finally {
       setBusy(false);
     }
   }
+
+  function resetControlValues() {
+    setControlValues(DEFAULT_CONTROL_VALUES);
+  }
+
+  function suggestNextDeviceName(type, list) {
+    const prefix = String(type || "DEVICE").toUpperCase();
+    const candidates = list
+      .map((d) => d.deviceName)
+      .filter((name) => name.toUpperCase().startsWith(prefix));
+
+    let maxSuffix = 0;
+    for (const name of candidates) {
+      const suffix = Number(name.slice(prefix.length));
+      if (Number.isFinite(suffix) && suffix > maxSuffix) maxSuffix = suffix;
+    }
+
+    return `${prefix}${maxSuffix + 1}`;
+  }
+
+  function hasCommand(device, commandName) {
+    if (!device) return false;
+    return Object.prototype.hasOwnProperty.call(device.commands || {}, commandName);
+  }
+
+  async function triggerLearn(commandName) {
+    if (!user) return;
+
+    const deviceName = viewMode === "add" ? draftDeviceName.trim() : activeDeviceName;
+    if (!isValidName(deviceName)) {
+      const msg = "Set a valid device name.";
+      setStatus(msg);
+      addLog(msg);
+      return;
+    }
+
+    await runAction("Learn", async () => {
+      const token = await getToken();
+      const payload = await apiCall("/api/learn", {
+        method: "POST",
+        token,
+        body: { deviceName, commandName, deviceType: activeType },
+      });
+
+      setPendingLearnCount((n) => n + 1);
+      addLog(`IR learned: ${deviceName}/${commandName}`);
+      await loadDevices(token, payload.message || "IR learned.");
+    });
+  }
+
+  async function triggerSend(commandName) {
+    if (!user || !activeDevice) return;
+
+    if (!hasCommand(activeDevice, commandName)) {
+      const msg = `Missing command: ${activeDevice.deviceName}/${commandName}`;
+      setStatus(msg);
+      addLog(msg);
+      return;
+    }
+
+    await runAction("Send", async () => {
+      await queuePendingCommand(user.uid, activeDevice.deviceName, commandName);
+      const msg = `Command sent: ${activeDevice.deviceName}/${commandName}`;
+      setStatus(msg);
+      addLog(msg);
+    });
+  }
+
+  async function executeCommand(commandName) {
+    if (viewMode === "send") return triggerSend(commandName);
+    if (viewMode === "add" || viewMode === "edit") return triggerLearn(commandName);
+  }
+
+  function beginAddDevice(type) {
+    const nextType = String(type || "TV").toUpperCase();
+    const suggested = suggestNextDeviceName(nextType, sortedDevices);
+
+    setViewMode("add");
+    setDraftType(nextType);
+    setDraftDeviceName(suggested);
+    setActiveDeviceName("");
+    setPendingLearnCount(0);
+    resetControlValues();
+
+    const msg = `${nextType} learn mode.`;
+    setStatus(msg);
+    addLog(msg);
+  }
+
+  function openDeviceSendMode(deviceName) {
+    setActiveDeviceName(deviceName);
+    setViewMode("send");
+    setPendingLearnCount(0);
+    resetControlValues();
+
+    const msg = `Send mode: ${deviceName}`;
+    setStatus(msg);
+    addLog(msg);
+  }
+
+  function openDeviceEditMode(deviceName) {
+    setActiveDeviceName(deviceName);
+    setViewMode("edit");
+    setPendingLearnCount(0);
+    setEditDeviceName(deviceName);
+    resetControlValues();
+
+    const msg = `Edit mode: ${deviceName}`;
+    setStatus(msg);
+    addLog(msg);
+  }
+
+  async function handleSaveNewDevice() {
+    if (!user || !canSaveNew) return;
+
+    await runAction("Save device", async () => {
+      const token = await getToken();
+      await loadDevices(token, "Device saved.");
+      setViewMode("send");
+      setActiveDeviceName(draftDeviceName.trim());
+      setPendingLearnCount(0);
+      addLog(`Device saved: ${draftDeviceName.trim()}`);
+    });
+  }
+
+  async function handleSaveEdit() {
+    if (!user || !activeDevice) return;
+
+    await runAction("Save changes", async () => {
+      const token = await getToken();
+      const nextName = editDeviceName.trim();
+
+      if (nextName && nextName !== activeDevice.deviceName) {
+        if (!isValidName(nextName)) {
+          throw new Error("Invalid device name.");
+        }
+
+        await apiCall("/api/device/rename", {
+          method: "PATCH",
+          token,
+          body: { oldDeviceName: activeDevice.deviceName, newDeviceName: nextName },
+        });
+
+        setActiveDeviceName(nextName);
+        addLog(`Renamed: ${activeDevice.deviceName} -> ${nextName}`);
+      }
+
+      await loadDevices(token, "Changes saved.");
+      setViewMode("send");
+      setPendingLearnCount(0);
+      addLog(`Device updated: ${nextName || activeDevice.deviceName}`);
+    });
+  }
+
+  async function handleRenameDevice(deviceName) {
+    if (!user) return;
+
+    const newDeviceName = window.prompt("Rename device", deviceName);
+    if (!newDeviceName) return;
+
+    const cleaned = newDeviceName.trim();
+    if (!isValidName(cleaned)) {
+      const msg = "Invalid name.";
+      setStatus(msg);
+      addLog(msg);
+      return;
+    }
+
+    await runAction("Rename", async () => {
+      const token = await getToken();
+      await apiCall("/api/device/rename", {
+        method: "PATCH",
+        token,
+        body: { oldDeviceName: deviceName, newDeviceName: cleaned },
+      });
+
+      await loadDevices(token, "Device renamed.");
+      if (activeDeviceName === deviceName) setActiveDeviceName(cleaned);
+      addLog(`Renamed: ${deviceName} -> ${cleaned}`);
+    });
+  }
+
+  async function handleDeleteDevice(deviceName) {
+    if (!user) return;
+
+    const confirmed = window.confirm(`Delete ${deviceName}?`);
+    if (!confirmed) return;
+
+    await runAction("Delete device", async () => {
+      const token = await getToken();
+      await apiCall("/api/device", { method: "DELETE", token, body: { deviceName } });
+
+      await loadDevices(token, "Device deleted.");
+      if (activeDeviceName === deviceName) {
+        setViewMode("idle");
+        setActiveDeviceName("");
+      }
+      addLog(`Deleted: ${deviceName}`);
+    });
+  }
+
+  const handleEmailAuth = async (event) => {
+    event.preventDefault();
+    if (!email.trim() || !password.trim()) return;
+
+    await runAction(isRegister ? "Register" : "Login", async () => {
+      if (isRegister) {
+        await createUserWithEmailAndPassword(auth, email.trim(), password);
+        setStatus("Registration successful.");
+      } else {
+        await signInWithEmailAndPassword(auth, email.trim(), password);
+        setStatus("Login successful.");
+      }
+    });
+  };
+
+  const handleGoogleLogin = async () => {
+    await runAction("Google login", async () => {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+      setStatus("Google login successful.");
+    });
+  };
+
+  const handleLogout = async () => {
+    await runAction("Logout", async () => {
+      await signOut(auth);
+      setDevices([]);
+      setViewMode("idle");
+      setActiveDeviceName("");
+      setPendingLearnCount(0);
+      setLogs([]);
+      setStatus("Logged out.");
+    });
+  };
+
+  const handleRefresh = async () => {
+    if (!user) return;
+
+    await runAction("Refresh", async () => {
+      const token = await getToken();
+      await loadDevices(token, "Device list refreshed.");
+      addLog("Device list refreshed.");
+    });
+  };
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+      setUser(nextUser);
+      setAuthReady(true);
+      if (!nextUser) setDevices([]);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -300,18 +491,25 @@ export default function App() {
       try {
         const token = await user.getIdToken();
         const payload = await apiCall("/api/devices", { method: "GET", token });
-        if (!cancelled) {
-          setDevices(payload.devices || []);
-          setMessage("Loaded your devices.");
-        }
+        if (cancelled) return;
+
+        const normalized = (payload.devices || []).map((device) => ({
+          ...device,
+          type: normalizeDeviceType(device.type, device.deviceName),
+          commands: device.commands || {},
+        }));
+
+        setDevices(normalized);
+        setStatus("Loaded devices.");
+        addLog("Session started.");
       } catch (error) {
         if (!cancelled) {
-          setMessage(`Load failed: ${error.message}`);
+          const msg = `Load failed: ${error.message}`;
+          setStatus(msg);
+          addLog(msg);
         }
       } finally {
-        if (!cancelled) {
-          setBusy(false);
-        }
+        if (!cancelled) setBusy(false);
       }
     })();
 
@@ -320,189 +518,16 @@ export default function App() {
     };
   }, [user]);
 
-  const handleEmailAuth = async (event) => {
-    event.preventDefault();
-    if (!canSubmitAuth) return;
-
-    await runAction(isRegister ? "Register" : "Login", async () => {
-      if (isRegister) {
-        await createUserWithEmailAndPassword(auth, email.trim(), password);
-        setMessage("Registration successful.");
-      } else {
-        await signInWithEmailAndPassword(auth, email.trim(), password);
-        setMessage("Login successful.");
-      }
-    });
-  };
-
-  const handleGoogleLogin = async () => {
-    await runAction("Google login", async () => {
-      await signInWithPopup(auth, new GoogleAuthProvider());
-      setMessage("Google login successful.");
-    });
-  };
-
-  const handleLogout = async () => {
-    await runAction("Logout", async () => {
-      await signOut(auth);
-      setDevices([]);
-      setLearnInputs({});
-      setEditingDevice("");
-      setRenameValue("");
-      setMessage("Logged out.");
-    });
-  };
-
-  const handleRefresh = async () => {
-    if (!user) return;
-
-    await runAction("Refresh", async () => {
-      const token = await getToken();
-      await refreshDevices(token);
-    });
-  };
-
-  const handleLearnNewDevice = async () => {
-    if (!user) return;
-
-    const deviceName = newDeviceName.trim();
-    const commandName = newCommandName.trim();
-
-    if (!isValidName(deviceName) || !isValidName(commandName)) {
-      setMessage("Device and command names can use only letters, numbers, _ and -.");
-      return;
-    }
-
-    await runAction("Learn", async () => {
-      const token = await getToken();
-      const payload = await apiCall("/api/learn", {
-        method: "POST",
-        token,
-        body: {
-          deviceName,
-          commandName,
-          deviceType: newDeviceType,
-        },
-      });
-
-      await refreshDevices(token, payload.message || "Command learned.");
-      setNewCommandName("power");
-    });
-  };
-
-  const handleSetLearnInput = (deviceName, value) => {
-    setLearnInputs((prev) => ({ ...prev, [deviceName]: value }));
-  };
-
-  const handleLearnOnDevice = async (device) => {
-    if (!user) return;
-
-    const commandName = String(learnInputs[device.deviceName] || "").trim();
-    if (!isValidName(commandName)) {
-      setMessage("Command name can use only letters, numbers, _ and -.");
-      return;
-    }
-
-    await runAction("Learn", async () => {
-      const token = await getToken();
-      const payload = await apiCall("/api/learn", {
-        method: "POST",
-        token,
-        body: {
-          deviceName: device.deviceName,
-          commandName,
-          deviceType: device.type,
-        },
-      });
-
-      await refreshDevices(token, payload.message || `Learned ${commandName}.`);
-      setLearnInputs((prev) => ({ ...prev, [device.deviceName]: "" }));
-    });
-  };
-
-  const handleSendCommand = async (deviceName, commandName) => {
-    if (!user) return;
-
-    await runAction("Send", async () => {
-      const token = await getToken();
-      const payload = await apiCall("/api/send", {
-        method: "POST",
-        token,
-        body: { deviceName, commandName },
-      });
-
-      setMessage(payload.message || `Sent ${deviceName}/${commandName}.`);
-    });
-  };
-
-  const handleDeleteCommand = async (deviceName, commandName) => {
-    if (!user) return;
-
-    const shouldDelete = window.confirm(`Delete ${commandName} from ${deviceName}?`);
-    if (!shouldDelete) return;
-
-    await runAction("Delete", async () => {
-      const token = await getToken();
-      const payload = await apiCall("/api/command", {
-        method: "DELETE",
-        token,
-        body: { deviceName, commandName },
-      });
-
-      await refreshDevices(token, payload.message || "Command deleted.");
-    });
-  };
-
-  const handleStartRename = (deviceName) => {
-    setEditingDevice(deviceName);
-    setRenameValue(deviceName);
-  };
-
-  const handleCancelRename = () => {
-    setEditingDevice("");
-    setRenameValue("");
-  };
-
-  const handleSaveRename = async (oldDeviceName) => {
-    if (!user) return;
-
-    const newDeviceNameValue = renameValue.trim();
-    if (!isValidName(newDeviceNameValue)) {
-      setMessage("New device name can use only letters, numbers, _ and -.");
-      return;
-    }
-
-    await runAction("Rename", async () => {
-      const token = await getToken();
-      const payload = await apiCall("/api/device/rename", {
-        method: "PATCH",
-        token,
-        body: {
-          oldDeviceName,
-          newDeviceName: newDeviceNameValue,
-        },
-      });
-
-      await refreshDevices(token, payload.message || "Device renamed.");
-      setEditingDevice("");
-      setRenameValue("");
-
-      setLearnInputs((prev) => {
-        const next = { ...prev };
-        const oldValue = next[oldDeviceName] || "";
-        delete next[oldDeviceName];
-        if (oldValue) {
-          next[newDeviceNameValue] = oldValue;
-        }
-        return next;
-      });
-    });
-  };
+  const panelTitle = useMemo(() => {
+    if (viewMode === "add") return `${draftType} Setup`;
+    if (activeDevice) return activeDevice.deviceName;
+    return "Device Control";
+  }, [viewMode, draftType, activeDevice]);
 
   if (!authReady) {
     return (
       <main className="page">
-        <section className="card">Loading authentication...</section>
+        <section className="auth-card">Loading authentication...</section>
       </main>
     );
   }
@@ -512,79 +537,390 @@ export default function App() {
       <main className="page">
         <AuthCard
           busy={busy}
-          canSubmitAuth={canSubmitAuth}
+          isRegister={isRegister}
           email={email}
           password={password}
-          isRegister={isRegister}
-          message={message}
+          status={status}
+          onToggle={() => setIsRegister((v) => !v)}
+          onSubmit={handleEmailAuth}
+          onGoogle={handleGoogleLogin}
           setEmail={setEmail}
           setPassword={setPassword}
-          setIsRegister={setIsRegister}
-          handleEmailAuth={handleEmailAuth}
-          handleGoogleLogin={handleGoogleLogin}
         />
       </main>
     );
   }
 
+  const controlsDisabled = busy || (viewMode !== "add" && !activeDevice);
+
   return (
-    <main className="page">
-      <section className="dashboard-shell">
-        <section className="card top-bar">
-          <div>
-            <h1>Universal Remote Dashboard</h1>
-            <p className="subtle">Signed in as {user.email}</p>
-          </div>
+    <main className="page app-page">
+      <nav className="top-nav glass-card">
+        <div className="brand">
+          <span className="brand-logo" aria-hidden="true" />
+          <strong>Smart IR Remote Hub</strong>
+        </div>
+        <button className="danger" onClick={handleLogout} disabled={busy}>Logout</button>
+      </nav>
 
-          <div className="row-actions">
-            <button className="secondary" onClick={handleRefresh} disabled={busy}>Refresh</button>
-            <button onClick={handleLogout} disabled={busy}>Logout</button>
-          </div>
-        </section>
-
-        <CreateDeviceCard
-          newDeviceName={newDeviceName}
-          setNewDeviceName={setNewDeviceName}
-          newDeviceType={newDeviceType}
-          setNewDeviceType={setNewDeviceType}
-          newCommandName={newCommandName}
-          setNewCommandName={setNewCommandName}
-          onLearn={handleLearnNewDevice}
-          disabled={busy}
-        />
-
-        <p className="status">{busy ? "Working..." : message}</p>
-
-        <section>
-          <h2 className="section-title">My Devices</h2>
-          {sortedDevices.length === 0 ? (
-            <section className="card empty-state">
-              <p>No devices saved yet. Create one and learn its first command.</p>
-            </section>
-          ) : (
-            <div className="device-grid">
-              {sortedDevices.map((device) => (
-                <DeviceCard
-                  key={device.deviceName}
-                  device={device}
-                  busy={busy}
-                  learnInput={learnInputs[device.deviceName] || ""}
-                  setLearnInput={handleSetLearnInput}
-                  editingDevice={editingDevice}
-                  renameValue={renameValue}
-                  setRenameValue={setRenameValue}
-                  onStartRename={handleStartRename}
-                  onCancelRename={handleCancelRename}
-                  onSaveRename={handleSaveRename}
-                  onLearn={handleLearnOnDevice}
-                  onSend={handleSendCommand}
-                  onDelete={handleDeleteCommand}
-                />
+      <section className="app-shell">
+        <aside className="left-panel glass-card">
+          <section className="left-section compact">
+            <h3>Add Device</h3>
+            <div className="type-grid">
+              {DEVICE_TYPE_OPTIONS.map((type) => (
+                <button
+                  key={type}
+                  className={`type-button ${viewMode === "add" && draftType === type ? "active" : ""}`}
+                  onClick={() => beginAddDevice(type)}
+                  disabled={busy}
+                >
+                  {type}
+                </button>
               ))}
             </div>
-          )}
+          </section>
+
+          <section className="left-section device-list-section">
+            <div className="section-head">
+              <h3>My Devices</h3>
+              <button className="ghost tiny" onClick={handleRefresh} disabled={busy}>Refresh</button>
+            </div>
+
+            {sortedDevices.length === 0 ? (
+              <p className="muted">No devices.</p>
+            ) : (
+              <div className="device-list">
+                {sortedDevices.map((device) => {
+                  const isActive = device.deviceName === activeDeviceName;
+                  return (
+                    <article
+                      key={device.deviceName}
+                      className={`device-item ${isActive ? "active" : ""}`}
+                      onClick={() => openDeviceSendMode(device.deviceName)}
+                    >
+                      <div className="device-item-top">
+                        <strong>{device.deviceName}</strong>
+                        <span className="badge">{normalizeDeviceType(device.type, device.deviceName)}</span>
+                      </div>
+
+                      <div className="device-item-actions">
+                        <button
+                          className="ghost tiny"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openDeviceEditMode(device.deviceName);
+                          }}
+                          disabled={busy}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="danger tiny"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteDevice(device.deviceName);
+                          }}
+                          disabled={busy}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </aside>
+
+        <section className="right-panel">
+          <section className="control-card glass-card">
+            <header className="control-head">
+              <h2>{panelTitle}</h2>
+              <span className="mode-pill">{labelForMode(viewMode)}</span>
+            </header>
+
+            {viewMode === "idle" && (
+              <div className="idle-state">
+                <p>Select a device</p>
+              </div>
+            )}
+
+            {viewMode !== "idle" && (
+              <div className="controls-area">
+                {(viewMode === "add" || viewMode === "edit") && (
+                  <div className="control-row setup-row">
+                    <span>Device name</span>
+                    <input
+                      value={viewMode === "add" ? draftDeviceName : editDeviceName}
+                      onChange={(e) => (viewMode === "add" ? setDraftDeviceName(e.target.value) : setEditDeviceName(e.target.value))}
+                      placeholder={viewMode === "add" ? `${draftType}1` : "Device name"}
+                      className="device-name-input"
+                    />
+                  </div>
+                )}
+
+                {activeType === "AC" && (
+                  <>
+                    <div className="control-row ac-row-2">
+                      <div className="ac-power">
+                        <span className="mini-label">Power</span>
+                        <div className="control-actions no-wrap">
+                          <button onClick={() => executeCommand("power_on")} disabled={controlsDisabled}>On</button>
+                          <button className="ghost" onClick={() => executeCommand("power_off")} disabled={controlsDisabled}>Off</button>
+                        </div>
+                      </div>
+
+                      <div className="ac-temp">
+                        <span className="mini-label">Temp ({controlValues.acTemp}°C)</span>
+                        <div className="slider-learn-row">
+                          <button
+                            type="button"
+                            className="edge-btn ghost"
+                            onClick={() => setControlValues((prev) => ({ ...prev, acTemp: Math.max(17, prev.acTemp - 1) }))}
+                            disabled={controlsDisabled}
+                            aria-label="Decrease temperature"
+                          >
+                            -
+                          </button>
+                          <input
+                            type="range"
+                            min={17}
+                            max={25}
+                            step={1}
+                            value={controlValues.acTemp}
+                            onChange={(e) => setControlValues((prev) => ({ ...prev, acTemp: Number(e.target.value) }))}
+                            disabled={controlsDisabled}
+                          />
+                          <button
+                            type="button"
+                            className="edge-btn ghost"
+                            onClick={() => setControlValues((prev) => ({ ...prev, acTemp: Math.min(25, prev.acTemp + 1) }))}
+                            disabled={controlsDisabled}
+                            aria-label="Increase temperature"
+                          >
+                            +
+                          </button>
+                          <button
+                            className="tiny-cta"
+                            onClick={() => executeCommand(`temp_${controlValues.acTemp}`)}
+                            disabled={controlsDisabled}
+                          >
+                            {viewMode === "send" ? "Send" : "Learn"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="control-row inline-row">
+                      <span>Mode</span>
+                      <div className="control-actions mode-actions">
+                        <button
+                          className={controlValues.acMode === "cooling" ? "active-choice" : ""}
+                          onClick={async () => {
+                            setControlValues((prev) => ({ ...prev, acMode: "cooling" }));
+                            await executeCommand("mode_cooling");
+                          }}
+                          disabled={controlsDisabled}
+                        >
+                          Cooling
+                        </button>
+                        <button
+                          className={controlValues.acMode === "fan" ? "active-choice" : ""}
+                          onClick={async () => {
+                            setControlValues((prev) => ({ ...prev, acMode: "fan" }));
+                            await executeCommand("mode_fan");
+                          }}
+                          disabled={controlsDisabled}
+                        >
+                          Fan
+                        </button>
+                        <button
+                          className={controlValues.acMode === "heating" ? "active-choice" : ""}
+                          onClick={async () => {
+                            setControlValues((prev) => ({ ...prev, acMode: "heating" }));
+                            await executeCommand("mode_heating");
+                          }}
+                          disabled={controlsDisabled}
+                        >
+                          Heating
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {activeType === "TV" && (
+                  <>
+                    <div className="control-row inline-row">
+                      <span>Power</span>
+                      <div className="control-actions no-wrap">
+                        <button onClick={() => executeCommand("power")} disabled={controlsDisabled}>Power</button>
+                      </div>
+                    </div>
+
+                    <div className="control-row tv-sliders-row">
+                      <div className="tv-slider-card">
+                        <span className="mini-label">Volume ({controlValues.tvVolume})</span>
+                        <div className="slider-learn-row">
+                          <button
+                            type="button"
+                            className="edge-btn ghost"
+                            onClick={() => setControlValues((prev) => ({ ...prev, tvVolume: Math.max(0, prev.tvVolume - 1) }))}
+                            disabled={controlsDisabled}
+                            aria-label="Decrease volume"
+                          >
+                            -
+                          </button>
+                          <input
+                            type="range"
+                            min={0}
+                            max={10}
+                            step={1}
+                            value={controlValues.tvVolume}
+                            onChange={(e) => setControlValues((prev) => ({ ...prev, tvVolume: Number(e.target.value) }))}
+                            disabled={controlsDisabled}
+                          />
+                          <button
+                            type="button"
+                            className="edge-btn ghost"
+                            onClick={() => setControlValues((prev) => ({ ...prev, tvVolume: Math.min(10, prev.tvVolume + 1) }))}
+                            disabled={controlsDisabled}
+                            aria-label="Increase volume"
+                          >
+                            +
+                          </button>
+                          <button
+                            className="tiny-cta"
+                            onClick={() => executeCommand(`volume_${controlValues.tvVolume}`)}
+                            disabled={controlsDisabled}
+                          >
+                            {viewMode === "send" ? "Send" : "Learn"}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="tv-slider-card">
+                        <span className="mini-label">Channel ({controlValues.tvChannel})</span>
+                        <div className="slider-learn-row">
+                          <button
+                            type="button"
+                            className="edge-btn ghost"
+                            onClick={() => setControlValues((prev) => ({ ...prev, tvChannel: Math.max(1, prev.tvChannel - 1) }))}
+                            disabled={controlsDisabled}
+                            aria-label="Decrease channel"
+                          >
+                            -
+                          </button>
+                          <input
+                            type="range"
+                            min={1}
+                            max={20}
+                            step={1}
+                            value={controlValues.tvChannel}
+                            onChange={(e) => setControlValues((prev) => ({ ...prev, tvChannel: Number(e.target.value) }))}
+                            disabled={controlsDisabled}
+                          />
+                          <button
+                            type="button"
+                            className="edge-btn ghost"
+                            onClick={() => setControlValues((prev) => ({ ...prev, tvChannel: Math.min(20, prev.tvChannel + 1) }))}
+                            disabled={controlsDisabled}
+                            aria-label="Increase channel"
+                          >
+                            +
+                          </button>
+                          <button
+                            className="tiny-cta"
+                            onClick={() => executeCommand(`channel_${controlValues.tvChannel}`)}
+                            disabled={controlsDisabled}
+                          >
+                            {viewMode === "send" ? "Send" : "Learn"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {activeType === "FAN" && (
+                  <>
+                    <div className="control-row inline-row">
+                      <span>Power</span>
+                      <div className="control-actions no-wrap">
+                        <button onClick={() => executeCommand("power")} disabled={controlsDisabled}>Power</button>
+                      </div>
+                    </div>
+
+                    <div className="control-row">
+                      <span className="mini-label">Speed ({controlValues.fanSpeed})</span>
+                      <div className="slider-learn-row">
+                        <button
+                          type="button"
+                          className="edge-btn ghost"
+                          onClick={() => setControlValues((prev) => ({ ...prev, fanSpeed: Math.max(1, prev.fanSpeed - 1) }))}
+                          disabled={controlsDisabled}
+                          aria-label="Decrease speed"
+                        >
+                          -
+                        </button>
+                        <input
+                          type="range"
+                          min={1}
+                          max={3}
+                          step={1}
+                          value={controlValues.fanSpeed}
+                          onChange={(e) => setControlValues((prev) => ({ ...prev, fanSpeed: Number(e.target.value) }))}
+                          disabled={controlsDisabled}
+                        />
+                        <button
+                          type="button"
+                          className="edge-btn ghost"
+                          onClick={() => setControlValues((prev) => ({ ...prev, fanSpeed: Math.min(3, prev.fanSpeed + 1) }))}
+                          disabled={controlsDisabled}
+                          aria-label="Increase speed"
+                        >
+                          +
+                        </button>
+                        <button
+                          className="tiny-cta"
+                          onClick={() => executeCommand(`speed_${controlValues.fanSpeed}`)}
+                          disabled={controlsDisabled}
+                        >
+                          {viewMode === "send" ? "Send" : "Learn"}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {activeType === "PROJECTOR" && (
+                  <div className="control-row inline-row">
+                    <span>Power</span>
+                    <div className="control-actions no-wrap">
+                      <button onClick={() => executeCommand("power")} disabled={controlsDisabled}>Power</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <footer className="control-footer">
+              {viewMode === "add" && (
+                <button onClick={handleSaveNewDevice} disabled={!canSaveNew || busy}>Save Device</button>
+              )}
+              {viewMode === "edit" && (
+                <button onClick={handleSaveEdit} disabled={!canSaveEdit || busy}>Save Changes</button>
+              )}
+            </footer>
+          </section>
+
+          <TerminalPanel logs={logs} status={status} />
         </section>
       </section>
     </main>
   );
 }
+
+

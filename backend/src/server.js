@@ -1,4 +1,4 @@
-﻿import "dotenv/config";
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { admin, db } from "./firebaseAdmin.js";
@@ -41,8 +41,13 @@ function validateName(name, label) {
   if (!name || typeof name !== "string") {
     return `${label} is required.`;
   }
-  if (!/^[A-Za-z0-9_-]+$/.test(name)) {
-    return `${label} can use only letters, numbers, _ and -.`;
+  const cleaned = name.trim();
+  if (!cleaned) {
+    return `${label} is required.`;
+  }
+  // Allow spaces and most symbols, but block "." and "/" to keep Firestore update paths safe.
+  if (/[./]/.test(cleaned) || /[\n\r\t]/.test(cleaned)) {
+    return `${label} cannot contain "." or "/" or newlines.`;
   }
   return null;
 }
@@ -247,6 +252,51 @@ app.patch("/api/device/rename", verifyFirebaseToken, async (req, res) => {
   }
 });
 
+app.delete("/api/device", verifyFirebaseToken, async (req, res) => {
+  const body = req.body || {};
+  const query = req.query || {};
+  const deviceName = body.deviceName || query.deviceName;
+
+  const deviceError = validateName(deviceName, "deviceName");
+  if (deviceError) {
+    res.status(400).json({ success: false, message: deviceError });
+    return;
+  }
+
+  try {
+    const uid = req.user.uid;
+    const userRef = db.collection("users").doc(uid);
+
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(userRef);
+      if (!snap.exists) {
+        throw makeHttpError(404, "User has no saved devices yet.");
+      }
+
+      const devices = snap.data()?.devices || {};
+      if (!devices[deviceName]) {
+        throw makeHttpError(404, `Device ${deviceName} not found.`);
+      }
+
+      tx.update(userRef, {
+        [`devices.${deviceName}`]: admin.firestore.FieldValue.delete(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    });
+
+    res.json({
+      success: true,
+      message: "Device deleted successfully.",
+      deviceName,
+    });
+  } catch (error) {
+    res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : "Failed to delete device.",
+      error: error.status ? undefined : error.message,
+    });
+  }
+});
 app.post("/api/send", verifyFirebaseToken, async (req, res) => {
   const { deviceName, commandName } = req.body || {};
 
@@ -343,3 +393,4 @@ app.listen(PORT, () => {
   console.log(`Backend listening on http://localhost:${PORT}`);
   console.log(`ESP32 base URL: ${ESP32_BASE_URL}`);
 });
+

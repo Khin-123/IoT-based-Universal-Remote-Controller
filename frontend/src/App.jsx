@@ -287,10 +287,16 @@ export default function App() {
     }
 
     await runAction("Send", async () => {
-      await queuePendingCommand(user.uid, activeDevice.deviceName, commandName);
-      const msg = `Command sent: ${activeDevice.deviceName}/${commandName}`;
+      const token = await getToken();
+      const payload = await apiCall("/api/send", {
+        method: "POST",
+        token,
+        body: { deviceName: activeDevice.deviceName, commandName },
+      });
+
+      const msg = payload.message || `Command sent: ${activeDevice.deviceName}/${commandName}`;
       setStatus(msg);
-      addLog(msg);
+      addLog(`Command sent: ${activeDevice.deviceName}/${commandName}`);
     });
   }
 

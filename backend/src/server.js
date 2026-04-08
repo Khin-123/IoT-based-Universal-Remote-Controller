@@ -1,9 +1,14 @@
-import "dotenv/config";
+﻿import dotenv from "dotenv";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import express from "express";
 import cors from "cors";
 import { admin, db } from "./firebaseAdmin.js";
 import { verifyFirebaseToken } from "./authMiddleware.js";
 
+
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(moduleDir, "..", ".env") });
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "256kb" }));
@@ -393,4 +398,6 @@ app.listen(PORT, () => {
   console.log(`Backend listening on http://localhost:${PORT}`);
   console.log(`ESP32 base URL: ${ESP32_BASE_URL}`);
 });
+
+
 

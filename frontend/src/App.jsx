@@ -134,6 +134,86 @@ function AuthCard({
   );
 }
 
+function RemotePicker({
+  remotes,
+  selectedRemoteId,
+  espId,
+  remoteName,
+  busy,
+  status,
+  onSelect,
+  onAdd,
+  onRemove,
+  setEspId,
+  setRemoteName,
+}) {
+  return (
+    <section className="auth-wrap">
+      <section className="auth-card">
+        <h1>Select Remote</h1>
+
+        {remotes.length === 0 ? (
+          <p className="muted">No remotes added yet.</p>
+        ) : (
+          <div className="device-list">
+            {remotes.map((r) => (
+              <article
+                key={r.remoteId}
+                className={`device-item ${selectedRemoteId === r.remoteId ? "active" : ""}`}
+                onClick={() => onSelect(r.remoteId)}
+              >
+                <div className="device-item-top">
+                  <strong>{r.name || r.remoteId}</strong>
+                  <span className="badge">{r.remoteId}</span>
+                </div>
+                <div className="device-item-actions">
+                  <button
+                    className="danger tiny"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemove(r.remoteId);
+                    }}
+                    disabled={busy}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+
+        <div className="divider" />
+
+        <h3>Add Remote (ESP ID)</h3>
+        <form
+          className="auth-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onAdd();
+          }}
+        >
+          <label>
+            ESP ID (from Serial Monitor)
+            <input value={espId} onChange={(e) => setEspId(e.target.value)} placeholder="e.g. 24A160FF12AB" required />
+          </label>
+
+          <label>
+            Remote name
+            <input value={remoteName} onChange={(e) => setRemoteName(e.target.value)} placeholder="Living room" required />
+          </label>
+
+          <button type="submit" disabled={busy || !espId.trim() || !remoteName.trim()}>
+            Add Remote
+          </button>
+        </form>
+
+        <p className="terminal-line">{busy ? "Working..." : status}</p>
+      </section>
+    </section>
+  );
+}
+
 function TerminalPanel({ logs, status }) {
   return (
     <section className="terminal-card">
@@ -158,6 +238,11 @@ export default function App() {
   const [devices, setDevices] = useState([]);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("Ready.");
+
+  const [remotes, setRemotes] = useState([]);
+  const [activeRemoteId, setActiveRemoteId] = useState("");
+  const [espIdDraft, setEspIdDraft] = useState("");
+  const [remoteNameDraft, setRemoteNameDraft] = useState("");
 
   const [viewMode, setViewMode] = useState("idle");
   const [draftType, setDraftType] = useState("TV");
@@ -202,8 +287,14 @@ export default function App() {
     return user.getIdToken();
   }
 
-  async function loadDevices(token, successMessage = "Devices loaded.") {
-    const payload = await apiCall("/api/devices", { method: "GET", token });
+  async function loadRemotes(token, successMessage = "Remotes loaded.") {
+    const payload = await apiCall("/api/remotes", { method: "GET", token });
+    setRemotes(payload.remotes || []);
+    setStatus(successMessage);
+  }
+
+  async function loadDevices(token, remoteId, successMessage = "Devices loaded.") {
+    const payload = await apiCall(`/api/devices?remoteId=${encodeURIComponent(remoteId)}`, { method: "GET", token });
     const normalized = (payload.devices || []).map((device) => ({
       ...device,
       type: normalizeDeviceType(device.type, device.deviceName),
@@ -252,7 +343,7 @@ export default function App() {
   }
 
   async function triggerLearn(commandName) {
-    if (!user) return;
+    if (!user || !activeRemoteId) return;
 
     const deviceName = viewMode === "add" ? draftDeviceName.trim() : activeDeviceName;
     if (!isValidName(deviceName)) {
@@ -267,17 +358,17 @@ export default function App() {
       const payload = await apiCall("/api/learn", {
         method: "POST",
         token,
-        body: { deviceName, commandName, deviceType: activeType },
+        body: { remoteId: activeRemoteId, deviceName, commandName, deviceType: activeType },
       });
 
       setPendingLearnCount((n) => n + 1);
       addLog(`IR learned: ${deviceName}/${commandName}`);
-      await loadDevices(token, payload.message || "IR learned.");
+      await loadDevices(token, activeRemoteId, payload.message || "IR learned.");
     });
   }
 
   async function triggerSend(commandName) {
-    if (!user || !activeDevice) return;
+    if (!user || !activeRemoteId || !activeDevice) return;
 
     if (!hasCommand(activeDevice, commandName)) {
       const msg = `Missing command: ${activeDevice.deviceName}/${commandName}`;
@@ -291,7 +382,7 @@ export default function App() {
       const payload = await apiCall("/api/send", {
         method: "POST",
         token,
-        body: { deviceName: activeDevice.deviceName, commandName },
+        body: { remoteId: activeRemoteId, deviceName: activeDevice.deviceName, commandName },
       });
 
       const msg = payload.message || `Command sent: ${activeDevice.deviceName}/${commandName}`;
@@ -349,7 +440,7 @@ export default function App() {
 
     await runAction("Save device", async () => {
       const token = await getToken();
-      await loadDevices(token, "Device saved.");
+      await loadDevices(token, activeRemoteId, "Device saved.");
       setViewMode("send");
       setActiveDeviceName(draftDeviceName.trim());
       setPendingLearnCount(0);
@@ -372,14 +463,14 @@ export default function App() {
         await apiCall("/api/device/rename", {
           method: "PATCH",
           token,
-          body: { oldDeviceName: activeDevice.deviceName, newDeviceName: nextName },
+          body: { remoteId: activeRemoteId, oldDeviceName: activeDevice.deviceName, newDeviceName: nextName },
         });
 
         setActiveDeviceName(nextName);
         addLog(`Renamed: ${activeDevice.deviceName} -> ${nextName}`);
       }
 
-      await loadDevices(token, "Changes saved.");
+      await loadDevices(token, activeRemoteId, "Changes saved.");
       setViewMode("send");
       setPendingLearnCount(0);
       addLog(`Device updated: ${nextName || activeDevice.deviceName}`);
@@ -405,10 +496,10 @@ export default function App() {
       await apiCall("/api/device/rename", {
         method: "PATCH",
         token,
-        body: { oldDeviceName: deviceName, newDeviceName: cleaned },
+        body: { remoteId: activeRemoteId, oldDeviceName: deviceName, newDeviceName: cleaned },
       });
 
-      await loadDevices(token, "Device renamed.");
+      await loadDevices(token, activeRemoteId, "Device renamed.");
       if (activeDeviceName === deviceName) setActiveDeviceName(cleaned);
       addLog(`Renamed: ${deviceName} -> ${cleaned}`);
     });
@@ -422,9 +513,9 @@ export default function App() {
 
     await runAction("Delete device", async () => {
       const token = await getToken();
-      await apiCall("/api/device", { method: "DELETE", token, body: { deviceName } });
+      await apiCall("/api/device", { method: "DELETE", token, body: { remoteId: activeRemoteId, deviceName } });
 
-      await loadDevices(token, "Device deleted.");
+      await loadDevices(token, activeRemoteId, "Device deleted.");
       if (activeDeviceName === deviceName) {
         setViewMode("idle");
         setActiveDeviceName("");
@@ -459,6 +550,8 @@ export default function App() {
     await runAction("Logout", async () => {
       await signOut(auth);
       setDevices([]);
+      setRemotes([]);
+      setActiveRemoteId("");
       setViewMode("idle");
       setActiveDeviceName("");
       setPendingLearnCount(0);
@@ -472,7 +565,12 @@ export default function App() {
 
     await runAction("Refresh", async () => {
       const token = await getToken();
-      await loadDevices(token, "Device list refreshed.");
+      if (!activeRemoteId) {
+        await loadRemotes(token, "Remote list refreshed.");
+        addLog("Remote list refreshed.");
+        return;
+      }
+      await loadDevices(token, activeRemoteId, "Device list refreshed.");
       addLog("Device list refreshed.");
     });
   };
@@ -496,17 +594,12 @@ export default function App() {
       setBusy(true);
       try {
         const token = await user.getIdToken();
-        const payload = await apiCall("/api/devices", { method: "GET", token });
+        const remotesPayload = await apiCall("/api/remotes", { method: "GET", token });
         if (cancelled) return;
 
-        const normalized = (payload.devices || []).map((device) => ({
-          ...device,
-          type: normalizeDeviceType(device.type, device.deviceName),
-          commands: device.commands || {},
-        }));
-
-        setDevices(normalized);
-        setStatus("Loaded devices.");
+        const list = remotesPayload.remotes || [];
+        setRemotes(list);
+        setStatus("Loaded remotes.");
         addLog("Session started.");
       } catch (error) {
         if (!cancelled) {
@@ -523,6 +616,61 @@ export default function App() {
       cancelled = true;
     };
   }, [user]);
+
+  async function handleAddRemote() {
+    if (!user) return;
+    if (!espIdDraft.trim() || !remoteNameDraft.trim()) return;
+
+    await runAction("Add remote", async () => {
+      const token = await getToken();
+      const payload = await apiCall("/api/remotes", {
+        method: "POST",
+        token,
+        body: { espId: espIdDraft.trim(), name: remoteNameDraft.trim() },
+      });
+      await loadRemotes(token, payload.message || "Remote added.");
+      setEspIdDraft("");
+      setRemoteNameDraft("");
+      addLog(`Remote added: ${payload.remoteId || espIdDraft.trim()}`);
+    });
+  }
+
+  async function handleRemoveRemote(remoteId) {
+    if (!user) return;
+    const confirmed = window.confirm(`Remove remote ${remoteId}?`);
+    if (!confirmed) return;
+
+    await runAction("Remove remote", async () => {
+      const token = await getToken();
+      await apiCall("/api/remotes", { method: "DELETE", token, body: { remoteId } });
+      if (activeRemoteId === remoteId) {
+        setActiveRemoteId("");
+        setDevices([]);
+        setViewMode("idle");
+        setActiveDeviceName("");
+      }
+      await loadRemotes(token, "Remote removed.");
+      addLog(`Remote removed: ${remoteId}`);
+    });
+  }
+
+  async function handleSelectRemote(remoteId) {
+    if (!user) return;
+    const cleaned = String(remoteId || "").trim();
+    if (!cleaned) return;
+
+    await runAction("Select remote", async () => {
+      const token = await getToken();
+      setActiveRemoteId(cleaned);
+      setDevices([]);
+      setViewMode("idle");
+      setActiveDeviceName("");
+      setPendingLearnCount(0);
+      resetControlValues();
+      await loadDevices(token, cleaned, "Remote selected.");
+      addLog(`Remote selected: ${cleaned}`);
+    });
+  }
 
   const panelTitle = useMemo(() => {
     if (viewMode === "add") return `${draftType} Setup`;
@@ -557,6 +705,26 @@ export default function App() {
     );
   }
 
+  if (!activeRemoteId) {
+    return (
+      <main className="page">
+        <RemotePicker
+          remotes={remotes}
+          selectedRemoteId={activeRemoteId}
+          espId={espIdDraft}
+          remoteName={remoteNameDraft}
+          busy={busy}
+          status={status}
+          onSelect={handleSelectRemote}
+          onAdd={handleAddRemote}
+          onRemove={handleRemoveRemote}
+          setEspId={setEspIdDraft}
+          setRemoteName={setRemoteNameDraft}
+        />
+      </main>
+    );
+  }
+
   const controlsDisabled = busy || (viewMode !== "add" && !activeDevice);
 
   return (
@@ -566,7 +734,10 @@ export default function App() {
           <span className="brand-logo" aria-hidden="true" />
           <strong>Smart IR Remote Hub</strong>
         </div>
-        <button className="danger" onClick={handleLogout} disabled={busy}>Logout</button>
+        <div className="nav-actions">
+          <button className="ghost" onClick={() => setActiveRemoteId("")} disabled={busy}>Switch Remote</button>
+          <button className="danger" onClick={handleLogout} disabled={busy}>Logout</button>
+        </div>
       </nav>
 
       <section className="app-shell">

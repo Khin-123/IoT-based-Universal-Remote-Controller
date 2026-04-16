@@ -6,9 +6,10 @@
 #include <IRsend.h>
 #include <IRutils.h>
 #include <ArduinoJson.h>
+#include <WebSocketsClient.h>
 
-const char *WIFI_SSID = "00MA00";
-const char *WIFI_PASS = "3675212677";
+const char *WIFI_SSID = "Xiaomi 15T Pro";
+const char *WIFI_PASS = "d0ntc0nnect";
 
 #define IR_RECV_PIN 14
 #define IR_SEND_PIN 4
@@ -24,6 +25,17 @@ WebServer server(80);
 IRrecv irrecv(IR_RECV_PIN, IR_RECV_BUFFER_SIZE, IR_RECV_TIMEOUT_MS, true);
 IRsend irsend(IR_SEND_PIN);
 decode_results results;
+WebSocketsClient ws;
+
+// Configure your deployed backend here.
+// Example: BACKEND_HOST="your-app.onrender.com" BACKEND_PORT=443 BACKEND_PATH="/ws" BACKEND_SSL=true
+const char *BACKEND_HOST = "10.122.130.58";
+const uint16_t BACKEND_PORT = 3000;
+const char *BACKEND_PATH = "/ws";
+const bool BACKEND_SSL = false;
+
+String ESP_ID = "";
+unsigned long lastWsReconnectAttemptMs = 0;
 
 String escapeJson(String s) {
   s.replace("\\", "\\\\");
@@ -39,6 +51,13 @@ void sendError(int code, const String &message) {
   body += "\"message\":\"" + escapeJson(message) + "\"";
   body += "}";
   server.send(code, "application/json", body);
+}
+
+String getEspId() {
+  uint64_t mac = ESP.getEfuseMac();
+  char buf[17];
+  snprintf(buf, sizeof(buf), "%04X%08X", (uint16_t)(mac >> 32), (uint32_t)mac);
+  return String(buf);
 }
 
 decode_type_t protocolFromString(const String &protocol) {
@@ -142,6 +161,63 @@ bool buildLearnResponse(decode_results &decoded, String &responseBody) {
   return true;
 }
 
+bool sendIrFromJson(JsonVariant ir) {
+  String protocol = ir["protocol"] | "";
+  uint64_t value = ir["value"] | 0;
+  uint16_t bits = ir["bits"] | 0;
+  JsonArray raw = ir["raw"].as<JsonArray>();
+  size_t rawLen = raw.size();
+
+  if (rawLen > 0) {
+    if (rawLen > RAW_MAX_SAMPLES) return false;
+    uint16_t *rawBuffer = (uint16_t *)malloc(rawLen * sizeof(uint16_t));
+    if (!rawBuffer) return false;
+    size_t i = 0;
+    for (JsonVariant v : raw) {
+      rawBuffer[i++] = (uint16_t)(v.as<uint32_t>());
+    }
+    irsend.sendRaw(rawBuffer, rawLen, IR_SEND_FREQUENCY_KHZ);
+    free(rawBuffer);
+    return true;
+  }
+
+  decode_type_t proto = protocolFromString(protocol);
+  return sendByProtocol(proto, value, bits);
+}
+
+String runLearnOnce(uint32_t timeoutMs, bool &ok) {
+  ok = false;
+  unsigned long startedAt = millis();
+
+  while (millis() - startedAt < timeoutMs) {
+    ws.loop(); // keep ws alive during long learn
+    if (irrecv.decode(&results)) {
+      if (results.repeat || results.overflow) {
+        irrecv.resume();
+        delay(10);
+        continue;
+      }
+
+      String body;
+      bool built = buildLearnResponse(results, body);
+      irrecv.resume();
+
+      if (!built) {
+        ok = false;
+        return "{\"success\":false,\"message\":\"IR captured but could not convert.\"}";
+      }
+
+      ok = true;
+      return body;
+    }
+
+    delay(10);
+  }
+
+  ok = false;
+  return "{\"success\":false,\"message\":\"Timeout waiting for IR signal.\"}";
+}
+
 void handleHealth() {
   String body = "{";
   body += "\"success\":true,";
@@ -159,33 +235,13 @@ void handleLearn() {
     }
   }
 
-  unsigned long startedAt = millis();
-
-  while (millis() - startedAt < timeoutMs) {
-    if (irrecv.decode(&results)) {
-      if (results.repeat || results.overflow) {
-        irrecv.resume();
-        delay(10);
-        continue;
-      }
-
-      String body;
-      bool ok = buildLearnResponse(results, body);
-      irrecv.resume();
-
-      if (!ok) {
-        sendError(422, "IR signal captured but could not convert to response format.");
-        return;
-      }
-
-      server.send(200, "application/json", body);
-      return;
-    }
-
-    delay(10);
+  bool ok = false;
+  String response = runLearnOnce(timeoutMs, ok);
+  if (!ok) {
+    sendError(response.indexOf("Timeout") >= 0 ? 408 : 422, "Learn failed.");
+    return;
   }
-
-  sendError(408, "Timeout waiting for IR signal.");
+  server.send(200, "application/json", response);
 }
 
 void handleSend() {
@@ -268,9 +324,109 @@ void connectWiFi() {
   }
 }
 
+void wsSendJson(const String &json) {
+  String payload = json;
+  ws.sendTXT(payload);
+}
+
+void wsHello() {
+  String msg = "{";
+  msg += "\"type\":\"hello\",";
+  msg += "\"espId\":\"" + ESP_ID + "\"";
+  msg += "}";
+  wsSendJson(msg);
+}
+
+void onWsEvent(WStype_t type, uint8_t *payload, size_t length) {
+  switch (type) {
+    case WStype_CONNECTED:
+      Serial.println("[WS] Connected.");
+      wsHello();
+      break;
+    case WStype_DISCONNECTED:
+      Serial.println("[WS] Disconnected.");
+      break;
+    case WStype_TEXT: {
+      String text = String((const char *)payload).substring(0, length);
+      DynamicJsonDocument doc(32768);
+      DeserializationError err = deserializeJson(doc, text);
+      if (err) return;
+
+      String msgType = doc["type"] | "";
+      String requestId = doc["requestId"] | "";
+
+      if (msgType == "send") {
+        bool ok = false;
+        if (doc.containsKey("irData")) {
+          ok = sendIrFromJson(doc["irData"]);
+        }
+        String resp = "{";
+        resp += "\"type\":\"send_result\",";
+        resp += "\"requestId\":\"" + escapeJson(requestId) + "\",";
+        resp += "\"success\":" + String(ok ? "true" : "false") + ",";
+        resp += "\"message\":\"" + escapeJson(ok ? "IR signal sent." : "Failed to send IR.") + "\"";
+        resp += "}";
+        wsSendJson(resp);
+        return;
+      }
+
+      if (msgType == "learn") {
+        uint32_t timeoutMs = doc["timeoutMs"] | LEARN_TIMEOUT_MS_DEFAULT;
+        if (timeoutMs > LEARN_TIMEOUT_MS_MAX) timeoutMs = LEARN_TIMEOUT_MS_MAX;
+        bool ok = false;
+        String learned = runLearnOnce(timeoutMs, ok);
+        DynamicJsonDocument out(32768);
+        DeserializationError outErr = deserializeJson(out, learned);
+        if (outErr) {
+          String resp = "{";
+          resp += "\"type\":\"learn_result\",";
+          resp += "\"requestId\":\"" + escapeJson(requestId) + "\",";
+          resp += "\"success\":false,";
+          resp += "\"message\":\"Invalid learn payload.\"";
+          resp += "}";
+          wsSendJson(resp);
+          return;
+        }
+
+        out["type"] = "learn_result";
+        out["requestId"] = requestId;
+        String resp;
+        serializeJson(out, resp);
+        wsSendJson(resp);
+        return;
+      }
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+void connectWsIfNeeded() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  // WebSocketsClient will auto-reconnect, but we throttle begin() attempts here.
+  if (ws.isConnected()) return;
+  if (millis() - lastWsReconnectAttemptMs < 2000) return;
+  lastWsReconnectAttemptMs = millis();
+
+  Serial.printf("[WS] Connecting to %s:%u%s (ssl=%s)\n", BACKEND_HOST, BACKEND_PORT, BACKEND_PATH, BACKEND_SSL ? "true" : "false");
+
+  if (BACKEND_SSL) {
+    ws.beginSSL(BACKEND_HOST, BACKEND_PORT, BACKEND_PATH);
+  } else {
+    ws.begin(BACKEND_HOST, BACKEND_PORT, BACKEND_PATH);
+  }
+  ws.onEvent(onWsEvent);
+  ws.setReconnectInterval(3000);
+}
+
 void setup() {
   Serial.begin(115200);
   delay(200);
+
+  ESP_ID = getEspId();
+  Serial.println("[ESP] ID: " + ESP_ID);
 
   connectWiFi();
 
@@ -286,5 +442,7 @@ void setup() {
 }
 
 void loop() {
+  connectWsIfNeeded();
+  ws.loop();
   server.handleClient();
 }

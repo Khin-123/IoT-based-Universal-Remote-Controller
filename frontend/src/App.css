@@ -50,6 +50,12 @@ p {
   min-height: 58px;
 }
 
+.nav-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -534,6 +540,12 @@ input[type="range"] {
   padding: 18px;
   display: grid;
   gap: 10px;
+}
+
+.divider {
+  height: 1px;
+  background: rgba(135, 187, 245, 0.25);
+  margin: 6px 0;
 }
 
 .auth-form {

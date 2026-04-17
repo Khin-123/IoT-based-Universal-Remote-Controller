@@ -3,6 +3,7 @@ import {
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  sendEmailVerification,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
@@ -134,6 +135,30 @@ function AuthCard({
   );
 }
 
+function VerifyEmailCard({ busy, status, email, onRefresh, onResend, onLogout }) {
+  return (
+    <section className="auth-wrap">
+      <section className="auth-card">
+        <h1>Verify Your Email</h1>
+        <p className="muted">
+          {email
+            ? `A verification link was sent to ${email}.`
+            : "A verification email has been sent to your inbox."}
+        </p>
+        <p className="muted">Open the link in your email, then return here and refresh your status.</p>
+
+        <div className="auth-buttons">
+          <button onClick={onRefresh} disabled={busy}>I've verified my email</button>
+          <button className="ghost" onClick={onResend} disabled={busy}>Resend verification email</button>
+          <button className="danger" onClick={onLogout} disabled={busy}>Logout</button>
+        </div>
+
+        <p className="terminal-line">{busy ? "Working..." : status}</p>
+      </section>
+    </section>
+  );
+}
+
 function RemotePicker({
   remotes,
   selectedRemoteId,
@@ -231,6 +256,7 @@ function TerminalPanel({ logs, status }) {
 export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [user, setUser] = useState(null);
+  const [isEmailVerified, setIsEmailVerified] = useState(false);
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -320,6 +346,17 @@ export default function App() {
 
   function resetControlValues() {
     setControlValues(DEFAULT_CONTROL_VALUES);
+  }
+
+  function resetWorkspaceState() {
+    setDevices([]);
+    setRemotes([]);
+    setActiveRemoteId("");
+    setViewMode("idle");
+    setActiveDeviceName("");
+    setPendingLearnCount(0);
+    setLogs([]);
+    resetControlValues();
   }
 
   function suggestNextDeviceName(type, list) {
@@ -530,10 +567,18 @@ export default function App() {
 
     await runAction(isRegister ? "Register" : "Login", async () => {
       if (isRegister) {
-        await createUserWithEmailAndPassword(auth, email.trim(), password);
-        setStatus("Registration successful.");
+        const credential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        await sendEmailVerification(credential.user);
+        setIsEmailVerified(false);
+        setStatus("Registration successful. Check your inbox and verify your email to continue.");
       } else {
-        await signInWithEmailAndPassword(auth, email.trim(), password);
+        const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
+        if (!credential.user.emailVerified) {
+          setIsEmailVerified(false);
+          setStatus("Email not verified. Verify your email, then click \"I've verified my email\".");
+          return;
+        }
+        setIsEmailVerified(true);
         setStatus("Login successful.");
       }
     });
@@ -541,7 +586,13 @@ export default function App() {
 
   const handleGoogleLogin = async () => {
     await runAction("Google login", async () => {
-      await signInWithPopup(auth, new GoogleAuthProvider());
+      const credential = await signInWithPopup(auth, new GoogleAuthProvider());
+      if (!credential.user.emailVerified) {
+        setIsEmailVerified(false);
+        setStatus("Google account email is not verified. Verify your email to continue.");
+        return;
+      }
+      setIsEmailVerified(true);
       setStatus("Google login successful.");
     });
   };
@@ -549,13 +600,8 @@ export default function App() {
   const handleLogout = async () => {
     await runAction("Logout", async () => {
       await signOut(auth);
-      setDevices([]);
-      setRemotes([]);
-      setActiveRemoteId("");
-      setViewMode("idle");
-      setActiveDeviceName("");
-      setPendingLearnCount(0);
-      setLogs([]);
+      setIsEmailVerified(false);
+      resetWorkspaceState();
       setStatus("Logged out.");
     });
   };
@@ -575,18 +621,69 @@ export default function App() {
     });
   };
 
+  const handleRefreshVerification = async () => {
+    if (!auth.currentUser) return;
+
+    await runAction("Check verification", async () => {
+      await auth.currentUser.reload();
+      const refreshedUser = auth.currentUser;
+      if (!refreshedUser) {
+        throw new Error("Session expired. Please log in again.");
+      }
+      const verified = Boolean(refreshedUser?.emailVerified);
+      if (verified) {
+        // Force-refresh token so backend sees updated email_verified claim immediately.
+        await refreshedUser.getIdToken(true);
+      }
+      setUser(refreshedUser);
+      setIsEmailVerified(verified);
+
+      if (verified) {
+        setStatus("Email verified. Access granted.");
+        addLog("Email verification completed.");
+        return;
+      }
+
+      setStatus("Email is still unverified. Open the email link, then try again.");
+    });
+  };
+
+  const handleResendVerification = async () => {
+    if (!auth.currentUser) return;
+
+    await runAction("Resend verification", async () => {
+      await auth.currentUser.reload();
+      if (auth.currentUser.emailVerified) {
+        await auth.currentUser.getIdToken(true);
+        setUser(auth.currentUser);
+        setIsEmailVerified(true);
+        setStatus("Your email is already verified. Access granted.");
+        return;
+      }
+
+      await sendEmailVerification(auth.currentUser);
+      setStatus("Verification email sent. Please check your inbox (and spam folder).");
+    });
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser);
+      setIsEmailVerified(Boolean(nextUser?.emailVerified));
       setAuthReady(true);
-      if (!nextUser) setDevices([]);
+      if (!nextUser || !nextUser.emailVerified) {
+        resetWorkspaceState();
+      }
+      if (nextUser && !nextUser.emailVerified) {
+        setStatus("Please verify your email to access the system.");
+      }
     });
 
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !user.emailVerified || !isEmailVerified) return;
 
     let cancelled = false;
 
@@ -615,7 +712,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, isEmailVerified]);
 
   async function handleAddRemote() {
     if (!user) return;
@@ -700,6 +797,21 @@ export default function App() {
           onGoogle={handleGoogleLogin}
           setEmail={setEmail}
           setPassword={setPassword}
+        />
+      </main>
+    );
+  }
+
+  if (!isEmailVerified) {
+    return (
+      <main className="page">
+        <VerifyEmailCard
+          busy={busy}
+          status={status}
+          email={user?.email || ""}
+          onRefresh={handleRefreshVerification}
+          onResend={handleResendVerification}
+          onLogout={handleLogout}
         />
       </main>
     );

@@ -7,8 +7,8 @@
 #include <IRutils.h>
 #include <ArduinoJson.h>
 
-const char *WIFI_SSID = "00MA00";
-const char *WIFI_PASS = "3675212677";
+const char *WIFI_SSID = "HONOR 200";
+const char *WIFI_PASS = "swampyae2005";
 
 #define IR_RECV_PIN 14
 #define IR_SEND_PIN 4

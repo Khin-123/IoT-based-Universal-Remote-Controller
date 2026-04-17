@@ -169,6 +169,7 @@ function RemotePicker({
   onSelect,
   onAdd,
   onRemove,
+  onBackToAuth,
   setEspId,
   setRemoteName,
 }) {
@@ -234,6 +235,12 @@ function RemotePicker({
         </form>
 
         <p className="terminal-line">{busy ? "Working..." : status}</p>
+
+        <div className="auth-buttons">
+          <button className="ghost" onClick={onBackToAuth} disabled={busy}>
+            Back to Login / Signup
+          </button>
+        </div>
       </section>
     </section>
   );
@@ -331,11 +338,28 @@ export default function App() {
     setStatus(successMessage);
   }
 
+  function isEmailNotVerifiedError(error) {
+    return String(error?.message || "").toLowerCase().includes("email not verified");
+  }
+
+  function forceVerificationGate(
+    message = "Email not verified. Please verify your email before accessing the system."
+  ) {
+    resetWorkspaceState();
+    setIsEmailVerified(false);
+    setStatus(message);
+    addLog(message);
+  }
+
   async function runAction(label, fn) {
     setBusy(true);
     try {
       await fn();
     } catch (error) {
+      if (isEmailNotVerifiedError(error)) {
+        forceVerificationGate();
+        return;
+      }
       const msg = `${label} failed: ${error.message}`;
       setStatus(msg);
       addLog(msg);
@@ -700,6 +724,10 @@ export default function App() {
         addLog("Session started.");
       } catch (error) {
         if (!cancelled) {
+          if (isEmailNotVerifiedError(error)) {
+            forceVerificationGate();
+            return;
+          }
           const msg = `Load failed: ${error.message}`;
           setStatus(msg);
           addLog(msg);
@@ -769,6 +797,15 @@ export default function App() {
     });
   }
 
+  async function handleBackToAuth() {
+    await runAction("Back to auth", async () => {
+      await signOut(auth);
+      setIsEmailVerified(false);
+      resetWorkspaceState();
+      setStatus("Returned to login/signup.");
+    });
+  }
+
   const panelTitle = useMemo(() => {
     if (viewMode === "add") return `${draftType} Setup`;
     if (activeDevice) return activeDevice.deviceName;
@@ -802,7 +839,7 @@ export default function App() {
     );
   }
 
-  if (!isEmailVerified) {
+  if (!isEmailVerified || !user.emailVerified) {
     return (
       <main className="page">
         <VerifyEmailCard
@@ -830,6 +867,7 @@ export default function App() {
           onSelect={handleSelectRemote}
           onAdd={handleAddRemote}
           onRemove={handleRemoveRemote}
+          onBackToAuth={handleBackToAuth}
           setEspId={setEspIdDraft}
           setRemoteName={setRemoteNameDraft}
         />

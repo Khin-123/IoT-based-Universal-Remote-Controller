@@ -30,9 +30,9 @@ WebSocketsClient ws;
 // Configure your deployed backend here.
 
 const char *BACKEND_HOST = "smart-ir-remote-hub.onrender.com";
-const uint16_t BACKEND_PORT = 3000;
+const uint16_t BACKEND_PORT = 443;
 const char *BACKEND_PATH = "/ws";
-const bool BACKEND_SSL = false;
+const bool BACKEND_SSL = true;
 
 String ESP_ID = "";
 unsigned long lastWsReconnectAttemptMs = 0;

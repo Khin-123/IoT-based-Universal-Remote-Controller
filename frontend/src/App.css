@@ -36,10 +36,11 @@ p {
 }
 
 .app-page {
+  height: calc(100dvh - 24px);
   display: grid;
   grid-template-rows: auto 1fr;
   gap: 10px;
-  align-content: start;
+  min-height: 0;
 }
 
 .top-nav {
@@ -77,10 +78,11 @@ p {
   width: min(1380px, 100%);
   margin: 0 auto;
   min-height: 0;
+  height: 100%;
   display: grid;
   grid-template-columns: minmax(300px, 30%) minmax(0, 70%);
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .glass-card {
@@ -209,7 +211,7 @@ p {
 
 .right-panel {
   display: grid;
-  grid-template-rows: 7fr 3fr;
+  grid-template-rows: minmax(0, 1fr) minmax(220px, 0.42fr);
   gap: 10px;
   min-height: 0;
 }
@@ -217,9 +219,10 @@ p {
 .control-card {
   padding: 12px;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 10px;
   min-height: 0;
+  overflow: hidden;
 }
 
 .control-head {
@@ -421,6 +424,11 @@ p {
   justify-content: flex-end;
   padding-top: 1px;
 }
+
+.control-footer:empty {
+  display: none;
+}
+
 .terminal-card {
   border-radius: 14px;
   border: 1px solid rgba(115, 170, 244, 0.2);
@@ -441,8 +449,23 @@ p {
 }
 
 .terminal-body {
-  overflow-y: auto;
+  overflow-y: scroll;
   padding: 8px 10px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(145, 197, 255, 0.45) rgba(10, 23, 42, 0.35);
+}
+
+.terminal-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.terminal-body::-webkit-scrollbar-thumb {
+  background: rgba(145, 197, 255, 0.35);
+  border-radius: 999px;
+}
+
+.terminal-body::-webkit-scrollbar-track {
+  background: rgba(10, 23, 42, 0.18);
 }
 
 .terminal-line {
@@ -563,7 +586,7 @@ input[type="range"] {
   }
 
   .right-panel {
-    grid-template-rows: minmax(0, auto) minmax(220px, 32dvh);
+    grid-template-rows: minmax(0, 1fr) minmax(220px, 32dvh);
   }
 }
 
@@ -573,6 +596,8 @@ input[type="range"] {
   }
 
   .app-page {
+    height: auto;
+    min-height: calc(100dvh - 20px);
     grid-template-rows: auto auto;
   }
 
@@ -599,12 +624,12 @@ input[type="range"] {
   }
 
   .app-shell {
+    height: auto;
     gap: 10px;
   }
 
   .left-panel,
-  .right-panel,
-  .control-card {
+  .right-panel {
     overflow: visible;
   }
 
@@ -618,11 +643,25 @@ input[type="range"] {
   }
 
   .device-list,
-  .controls-area,
-  .terminal-body {
+  .controls-area {
     overflow: visible;
     max-height: none;
     padding-right: 0;
+  }
+
+  .right-panel {
+    grid-template-rows: auto minmax(220px, 34dvh);
+  }
+
+  .terminal-card {
+    min-height: 220px;
+    max-height: 34dvh;
+  }
+
+  .terminal-body {
+    overflow-y: scroll;
+    max-height: none;
+    padding-right: 6px;
   }
 
   .control-row.inline-row,
@@ -713,10 +752,14 @@ input[type="range"] {
   }
 
   .terminal-head,
-  .terminal-body,
   .auth-card,
   .left-panel,
   .control-card {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .terminal-body {
     padding-left: 10px;
     padding-right: 10px;
   }

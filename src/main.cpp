@@ -8,8 +8,8 @@
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>
 
-const char *WIFI_SSID = "WIFI_SSID";
-const char *WIFI_PASS = "WIFI_PASSWORD";
+const char *WIFI_SSID = "HONOR 200";
+const char *WIFI_PASS = "swampyae2005";
 
 #define IR_RECV_PIN 14
 #define IR_SEND_PIN 4
@@ -34,7 +34,7 @@ WebSocketsClient ws;
 // const bool BACKEND_SSL = true;
 
 // This is for Local.
-const char *BACKEND_HOST = "192.168.100.125";
+const char *BACKEND_HOST = "10.159.62.238";
 const uint16_t BACKEND_PORT = 3000;
 const char *BACKEND_PATH = "/ws";
 const bool BACKEND_SSL = false;

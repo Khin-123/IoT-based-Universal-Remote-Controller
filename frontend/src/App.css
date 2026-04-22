@@ -10,7 +10,9 @@
 html,
 body,
 #root {
+  height: 100%;
   min-height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -30,9 +32,10 @@ p {
 }
 
 .page {
-  min-height: 100vh;
-  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
   padding: 12px;
+  overflow: hidden;
 }
 
 .app-page {
@@ -83,6 +86,7 @@ p {
   grid-template-columns: minmax(300px, 30%) minmax(0, 70%);
   gap: 12px;
   align-items: stretch;
+  overflow: hidden;
 }
 
 .glass-card {
@@ -151,6 +155,8 @@ p {
 .device-list {
   overflow-y: auto;
   display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
   gap: 8px;
   padding-right: 4px;
   min-height: 0;
@@ -169,6 +175,7 @@ p {
   border: 1px solid rgba(139, 189, 245, 0.2);
   border-radius: 12px;
   padding: 8px;
+  min-height: 72px;
   background: rgba(10, 23, 42, 0.7);
   cursor: pointer;
   transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
@@ -205,14 +212,16 @@ p {
 .device-item-actions {
   margin-top: 7px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, auto);
+  justify-content: start;
   gap: 6px;
 }
 
 .right-panel {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) minmax(220px, 0.42fr);
+  grid-template-rows: 70% 30%;
   gap: 10px;
+  height: 100%;
   min-height: 0;
 }
 
@@ -221,6 +230,7 @@ p {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 10px;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }
@@ -263,7 +273,7 @@ p {
   gap: 6px;
   align-content: start;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   padding-right: 2px;
 }
 
@@ -271,9 +281,9 @@ p {
   border: 1px solid rgba(139, 191, 244, 0.23);
   border-radius: 10px;
   background: rgba(16, 35, 62, 0.55);
-  padding: 6px;
+  padding: 5px 6px;
   display: grid;
-  gap: 6px;
+  gap: 5px;
 }
 
 .control-row.inline-row {
@@ -300,6 +310,7 @@ p {
 .control-row.setup-row {
   grid-template-columns: 72px minmax(0, 1fr);
   align-items: center;
+  column-gap: 12px;
 }
 
 .control-row.setup-row > span {
@@ -307,17 +318,27 @@ p {
 }
 
 .device-name-input {
-  width: min(60%, 360px);
+  width: min(30%, 360px);
   justify-self: start;
 }
 
-.ac-row-2 {
-  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
-  align-items: center;
+.ac-top-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: 10px;
 }
 
 .ac-power,
+.ac-mode{
+  display:flex;
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid rgba(139, 191, 244, 0.23);
+  border-radius: 10px;
+  background: rgba(10, 23, 42, 0.35);
+  padding: 6px;
+}
+
 .ac-temp {
   display: grid;
   gap: 6px;
@@ -330,9 +351,13 @@ p {
 
 .slider-learn-row {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 28px auto;
+  grid-template-columns: 26px minmax(0, 1fr) 26px minmax(76px, auto);
   align-items: center;
-  gap: 6px;
+  gap: 10px;
+  min-width: 0;
+}
+
+.slider-learn-row input[type="range"] {
   min-width: 0;
 }
 
@@ -359,7 +384,8 @@ p {
 }
 
 .tiny-cta {
-  padding: 0 10px;
+  margin-left: 6px;
+  padding: 0 8px;
   height: var(--btn-h);
   white-space: nowrap;
 }
@@ -375,8 +401,15 @@ p {
 .mini-label {
   color: #cfe0ff;
   font-weight: 600;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   white-space: nowrap;
+}
+
+.mini-label-acmode {
+  color: #cfe0ff;
+  font-weight: 600;
+  font-size: 0.78rem;
+  margin: 4px 6px 0 4px;
 }
 
 .control-actions {
@@ -436,6 +469,8 @@ p {
   box-shadow: inset 0 0 25px rgba(12, 48, 85, 0.25);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -501,11 +536,11 @@ select:focus {
 }
 
 button {
-  --btn-h: 32px;
+  --btn-h: 30px;
   background: linear-gradient(135deg, #1e7fe0, #14a68a);
   color: #f3fdff;
   height: var(--btn-h);
-  padding: 0 11px;
+  padding: 0 9px;
   font-weight: 700;
   cursor: pointer;
   transition: transform 0.18s ease, filter 0.18s ease;
@@ -540,9 +575,9 @@ button.danger {
 }
 
 button.tiny {
-  height: 28px;
-  padding: 0 8px;
-  font-size: 0.74rem;
+  height: 26px;
+  padding: 0 7px;
+  font-size: 0.72rem;
 }
 
 input[type="range"] {
@@ -583,10 +618,17 @@ input[type="range"] {
 @media (max-width: 1100px) {
   .app-shell {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(220px, 0.85fr) minmax(0, 1.15fr);
+  }
+
+  .left-panel,
+  .right-panel {
+    min-height: 0;
+    overflow: hidden;
   }
 
   .right-panel {
-    grid-template-rows: minmax(0, 1fr) minmax(220px, 32dvh);
+    grid-template-rows: 70% 30%;
   }
 }
 
@@ -596,9 +638,9 @@ input[type="range"] {
   }
 
   .app-page {
-    height: auto;
-    min-height: calc(100dvh - 20px);
-    grid-template-rows: auto auto;
+    height: calc(100dvh - 20px);
+    min-height: 0;
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .top-nav {
@@ -624,38 +666,32 @@ input[type="range"] {
   }
 
   .app-shell {
-    height: auto;
+    height: 100%;
     gap: 10px;
+    grid-template-rows: minmax(180px, 0.8fr) minmax(0, 1.2fr);
   }
 
   .left-panel,
   .right-panel {
-    overflow: visible;
-  }
-
-  .left-panel,
-  .right-panel {
-    grid-template-rows: auto;
+    overflow: hidden;
   }
 
   .device-list-section {
-    grid-template-rows: auto auto;
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
-  .device-list,
-  .controls-area {
-    overflow: visible;
+  .device-list {
+    overflow-y: auto;
     max-height: none;
-    padding-right: 0;
+    padding-right: 3px;
   }
 
   .right-panel {
-    grid-template-rows: auto minmax(220px, 34dvh);
+    grid-template-rows: 70% 30%;
   }
 
   .terminal-card {
-    min-height: 220px;
-    max-height: 34dvh;
+    max-height: none;
   }
 
   .terminal-body {
@@ -666,8 +702,7 @@ input[type="range"] {
 
   .control-row.inline-row,
   .control-row.combo-row,
-  .control-row.setup-row,
-  .ac-row-2 {
+  .control-row.setup-row {
     grid-template-columns: 1fr;
   }
 
@@ -726,6 +761,106 @@ input[type="range"] {
 
   .auth-card {
     padding: 16px;
+  }
+}
+
+@media (max-width: 760px) {
+  .ac-top-row,
+  .tv-sliders-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-height: 720px), (max-width: 920px) {
+  html,
+  body,
+  #root {
+    height: auto;
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .page {
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .app-page {
+    height: auto;
+    min-height: calc(100dvh - 24px);
+  }
+
+  .app-shell {
+    height: auto;
+    overflow: visible;
+  }
+
+  .left-panel,
+  .right-panel,
+  .control-card,
+  .terminal-card {
+    height: auto;
+    overflow: visible;
+  }
+
+  .controls-area {
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+
+  .controls-area::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .controls-area::-webkit-scrollbar-thumb {
+    background: rgba(145, 197, 255, 0.28);
+    border-radius: 999px;
+  }
+
+  .controls-area::-webkit-scrollbar-track {
+    background: rgba(10, 23, 42, 0.18);
+  }
+}
+
+@media (max-height: 820px) {
+  .top-nav {
+    min-height: 52px;
+    padding: 8px 12px;
+  }
+
+  .left-panel,
+  .control-card {
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .left-section {
+    padding: 8px;
+    gap: 6px;
+  }
+
+  .control-row {
+    padding: 4px 6px;
+    gap: 4px;
+  }
+
+  .slider-learn-row {
+    grid-template-columns: 24px minmax(0, 1fr) 24px minmax(72px, auto);
+    gap: 4px;
+  }
+
+  button {
+    --btn-h: 28px;
+    padding: 0 8px;
+    font-size: 0.86rem;
+  }
+
+  .terminal-line {
+    font-size: 0.76rem;
+    margin-bottom: 4px;
   }
 }
 

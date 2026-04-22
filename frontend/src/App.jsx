@@ -1023,15 +1023,52 @@ export default function App() {
 
                 {activeType === "AC" && (
                   <>
-                    <div className="control-row ac-row-2">
+                    <div className="control-row ac-top-row">
                       <div className="ac-power">
-                        <span className="mini-label">Power</span>
                         <div className="control-actions no-wrap">
                           <button onClick={() => executeCommand("power_on")} disabled={controlsDisabled}>On</button>
                           <button className="ghost" onClick={() => executeCommand("power_off")} disabled={controlsDisabled}>Off</button>
                         </div>
                       </div>
 
+                      <div className="ac-mode">
+                        <span className="mini-label-acmode">Mode</span>
+                        <div className="control-actions mode-actions">
+                          <button
+                            className={controlValues.acMode === "cooling" ? "active-choice" : ""}
+                            onClick={async () => {
+                              setControlValues((prev) => ({ ...prev, acMode: "cooling" }));
+                              await executeCommand("mode_cooling");
+                            }}
+                            disabled={controlsDisabled}
+                          >
+                            Cooling
+                          </button>
+                          <button
+                            className={controlValues.acMode === "fan" ? "active-choice" : ""}
+                            onClick={async () => {
+                              setControlValues((prev) => ({ ...prev, acMode: "fan" }));
+                              await executeCommand("mode_fan");
+                            }}
+                            disabled={controlsDisabled}
+                          >
+                            Fan
+                          </button>
+                          <button
+                            className={controlValues.acMode === "heating" ? "active-choice" : ""}
+                            onClick={async () => {
+                              setControlValues((prev) => ({ ...prev, acMode: "heating" }));
+                              await executeCommand("mode_heating");
+                            }}
+                            disabled={controlsDisabled}
+                          >
+                            Heating
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="control-row">
                       <div className="ac-temp">
                         <span className="mini-label">Temp ({controlValues.acTemp}°C)</span>
                         <div className="slider-learn-row">
@@ -1072,49 +1109,12 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-
-                    <div className="control-row inline-row">
-                      <span>Mode</span>
-                      <div className="control-actions mode-actions">
-                        <button
-                          className={controlValues.acMode === "cooling" ? "active-choice" : ""}
-                          onClick={async () => {
-                            setControlValues((prev) => ({ ...prev, acMode: "cooling" }));
-                            await executeCommand("mode_cooling");
-                          }}
-                          disabled={controlsDisabled}
-                        >
-                          Cooling
-                        </button>
-                        <button
-                          className={controlValues.acMode === "fan" ? "active-choice" : ""}
-                          onClick={async () => {
-                            setControlValues((prev) => ({ ...prev, acMode: "fan" }));
-                            await executeCommand("mode_fan");
-                          }}
-                          disabled={controlsDisabled}
-                        >
-                          Fan
-                        </button>
-                        <button
-                          className={controlValues.acMode === "heating" ? "active-choice" : ""}
-                          onClick={async () => {
-                            setControlValues((prev) => ({ ...prev, acMode: "heating" }));
-                            await executeCommand("mode_heating");
-                          }}
-                          disabled={controlsDisabled}
-                        >
-                          Heating
-                        </button>
-                      </div>
-                    </div>
                   </>
                 )}
 
                 {activeType === "TV" && (
                   <>
                     <div className="control-row inline-row">
-                      <span>Power</span>
                       <div className="control-actions no-wrap">
                         <button onClick={() => executeCommand("power")} disabled={controlsDisabled}>Power</button>
                       </div>
@@ -1207,7 +1207,6 @@ export default function App() {
                 {activeType === "FAN" && (
                   <>
                     <div className="control-row inline-row">
-                      <span>Power</span>
                       <div className="control-actions no-wrap">
                         <button onClick={() => executeCommand("power")} disabled={controlsDisabled}>Power</button>
                       </div>
@@ -1257,7 +1256,6 @@ export default function App() {
 
                 {activeType === "PROJECTOR" && (
                   <div className="control-row inline-row">
-                    <span>Power</span>
                     <div className="control-actions no-wrap">
                       <button onClick={() => executeCommand("power")} disabled={controlsDisabled}>Power</button>
                     </div>

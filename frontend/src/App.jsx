@@ -624,6 +624,7 @@ export default function App() {
         />
 
         <section className="right-panel">
+<<<<<<< HEAD
           <ControlPanel
             activeDevice={activeDevice}
             activeType={activeType}
@@ -644,6 +645,286 @@ export default function App() {
             setDraftDeviceName={setDraftDeviceName}
             setEditDeviceName={setEditDeviceName}
           />
+=======
+          <section className="control-card glass-card">
+            <header className="control-head">
+              <h2>{panelTitle}</h2>
+              <span className="mode-pill">{labelForMode(viewMode)}</span>
+            </header>
+
+            {viewMode === "idle" && (
+              <div className="idle-state">
+                <p>Select a device</p>
+              </div>
+            )}
+
+            {viewMode !== "idle" && (
+              <div className="controls-area">
+                {(viewMode === "add" || viewMode === "edit") && (
+                  <div className="control-row setup-row">
+                    <span>Device name</span>
+                    <input
+                      value={viewMode === "add" ? draftDeviceName : editDeviceName}
+                      onChange={(e) => (viewMode === "add" ? setDraftDeviceName(e.target.value) : setEditDeviceName(e.target.value))}
+                      placeholder={viewMode === "add" ? `${draftType}1` : "Device name"}
+                      className="device-name-input"
+                    />
+                  </div>
+                )}
+
+                {activeType === "AC" && (
+                  <>
+                    <div className="control-row ac-top-row">
+                      <div className="ac-power">
+                        <div className="control-actions no-wrap">
+                          <button onClick={() => executeCommand("power_on")} disabled={controlsDisabled}>On</button>
+                          <button className="ghost" onClick={() => executeCommand("power_off")} disabled={controlsDisabled}>Off</button>
+                        </div>
+                      </div>
+
+                      <div className="ac-mode">
+                        <span className="mini-label-acmode">Mode</span>
+                        <div className="control-actions mode-actions">
+                          <button
+                            className={controlValues.acMode === "cooling" ? "active-choice" : ""}
+                            onClick={async () => {
+                              setControlValues((prev) => ({ ...prev, acMode: "cooling" }));
+                              await executeCommand("mode_cooling");
+                            }}
+                            disabled={controlsDisabled}
+                          >
+                            Cooling
+                          </button>
+                          <button
+                            className={controlValues.acMode === "fan" ? "active-choice" : ""}
+                            onClick={async () => {
+                              setControlValues((prev) => ({ ...prev, acMode: "fan" }));
+                              await executeCommand("mode_fan");
+                            }}
+                            disabled={controlsDisabled}
+                          >
+                            Fan
+                          </button>
+                          <button
+                            className={controlValues.acMode === "heating" ? "active-choice" : ""}
+                            onClick={async () => {
+                              setControlValues((prev) => ({ ...prev, acMode: "heating" }));
+                              await executeCommand("mode_heating");
+                            }}
+                            disabled={controlsDisabled}
+                          >
+                            Heating
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="control-row">
+                      <div className="ac-temp">
+                        <span className="mini-label">Temp ({controlValues.acTemp}°C)</span>
+                        <div className="slider-learn-row">
+                          <button
+                            type="button"
+                            className="edge-btn ghost"
+                            onClick={() => setControlValues((prev) => ({ ...prev, acTemp: Math.max(17, prev.acTemp - 1) }))}
+                            disabled={controlsDisabled}
+                            aria-label="Decrease temperature"
+                          >
+                            -
+                          </button>
+                          <input
+                            type="range"
+                            min={17}
+                            max={25}
+                            step={1}
+                            value={controlValues.acTemp}
+                            onChange={(e) => setControlValues((prev) => ({ ...prev, acTemp: Number(e.target.value) }))}
+                            disabled={controlsDisabled}
+                          />
+                          <button
+                            type="button"
+                            className="edge-btn ghost"
+                            onClick={() => setControlValues((prev) => ({ ...prev, acTemp: Math.min(25, prev.acTemp + 1) }))}
+                            disabled={controlsDisabled}
+                            aria-label="Increase temperature"
+                          >
+                            +
+                          </button>
+                          <button
+                            className="tiny-cta"
+                            onClick={() => executeCommand(`temp_${controlValues.acTemp}`)}
+                            disabled={controlsDisabled}
+                          >
+                            {viewMode === "send" ? "Send" : "Learn"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {activeType === "TV" && (
+                  <>
+                    <div className="control-row inline-row">
+                      <div className="control-actions no-wrap">
+                        <button onClick={() => executeCommand("power")} disabled={controlsDisabled}>Power</button>
+                      </div>
+                    </div>
+
+                    <div className="control-row tv-sliders-row">
+                      <div className="tv-slider-card">
+                        <span className="mini-label">Volume ({controlValues.tvVolume})</span>
+                        <div className="slider-learn-row">
+                          <button
+                            type="button"
+                            className="edge-btn ghost"
+                            onClick={() => setControlValues((prev) => ({ ...prev, tvVolume: Math.max(0, prev.tvVolume - 1) }))}
+                            disabled={controlsDisabled}
+                            aria-label="Decrease volume"
+                          >
+                            -
+                          </button>
+                          <input
+                            type="range"
+                            min={0}
+                            max={10}
+                            step={1}
+                            value={controlValues.tvVolume}
+                            onChange={(e) => setControlValues((prev) => ({ ...prev, tvVolume: Number(e.target.value) }))}
+                            disabled={controlsDisabled}
+                          />
+                          <button
+                            type="button"
+                            className="edge-btn ghost"
+                            onClick={() => setControlValues((prev) => ({ ...prev, tvVolume: Math.min(10, prev.tvVolume + 1) }))}
+                            disabled={controlsDisabled}
+                            aria-label="Increase volume"
+                          >
+                            +
+                          </button>
+                          <button
+                            className="tiny-cta"
+                            onClick={() => executeCommand(`volume_${controlValues.tvVolume}`)}
+                            disabled={controlsDisabled}
+                          >
+                            {viewMode === "send" ? "Send" : "Learn"}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="tv-slider-card">
+                        <span className="mini-label">Channel ({controlValues.tvChannel})</span>
+                        <div className="slider-learn-row">
+                          <button
+                            type="button"
+                            className="edge-btn ghost"
+                            onClick={() => setControlValues((prev) => ({ ...prev, tvChannel: Math.max(1, prev.tvChannel - 1) }))}
+                            disabled={controlsDisabled}
+                            aria-label="Decrease channel"
+                          >
+                            -
+                          </button>
+                          <input
+                            type="range"
+                            min={1}
+                            max={20}
+                            step={1}
+                            value={controlValues.tvChannel}
+                            onChange={(e) => setControlValues((prev) => ({ ...prev, tvChannel: Number(e.target.value) }))}
+                            disabled={controlsDisabled}
+                          />
+                          <button
+                            type="button"
+                            className="edge-btn ghost"
+                            onClick={() => setControlValues((prev) => ({ ...prev, tvChannel: Math.min(20, prev.tvChannel + 1) }))}
+                            disabled={controlsDisabled}
+                            aria-label="Increase channel"
+                          >
+                            +
+                          </button>
+                          <button
+                            className="tiny-cta"
+                            onClick={() => executeCommand(`channel_${controlValues.tvChannel}`)}
+                            disabled={controlsDisabled}
+                          >
+                            {viewMode === "send" ? "Send" : "Learn"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {activeType === "FAN" && (
+                  <>
+                    <div className="control-row inline-row">
+                      <div className="control-actions no-wrap">
+                        <button onClick={() => executeCommand("power")} disabled={controlsDisabled}>Power</button>
+                      </div>
+                    </div>
+
+                    <div className="control-row">
+                      <span className="mini-label">Speed ({controlValues.fanSpeed})</span>
+                      <div className="slider-learn-row">
+                        <button
+                          type="button"
+                          className="edge-btn ghost"
+                          onClick={() => setControlValues((prev) => ({ ...prev, fanSpeed: Math.max(1, prev.fanSpeed - 1) }))}
+                          disabled={controlsDisabled}
+                          aria-label="Decrease speed"
+                        >
+                          -
+                        </button>
+                        <input
+                          type="range"
+                          min={1}
+                          max={3}
+                          step={1}
+                          value={controlValues.fanSpeed}
+                          onChange={(e) => setControlValues((prev) => ({ ...prev, fanSpeed: Number(e.target.value) }))}
+                          disabled={controlsDisabled}
+                        />
+                        <button
+                          type="button"
+                          className="edge-btn ghost"
+                          onClick={() => setControlValues((prev) => ({ ...prev, fanSpeed: Math.min(3, prev.fanSpeed + 1) }))}
+                          disabled={controlsDisabled}
+                          aria-label="Increase speed"
+                        >
+                          +
+                        </button>
+                        <button
+                          className="tiny-cta"
+                          onClick={() => executeCommand(`speed_${controlValues.fanSpeed}`)}
+                          disabled={controlsDisabled}
+                        >
+                          {viewMode === "send" ? "Send" : "Learn"}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {activeType === "PROJECTOR" && (
+                  <div className="control-row inline-row">
+                    <div className="control-actions no-wrap">
+                      <button onClick={() => executeCommand("power")} disabled={controlsDisabled}>Power</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <footer className="control-footer">
+              {viewMode === "add" && (
+                <button onClick={handleSaveNewDevice} disabled={!canSaveNew || busy}>Save Device</button>
+              )}
+              {viewMode === "edit" && (
+                <button onClick={handleSaveEdit} disabled={!canSaveEdit || busy}>Save Changes</button>
+              )}
+            </footer>
+          </section>
+>>>>>>> 4174bad112e9d7d89f0f1260d83895f8fe7e970b
 
           <TerminalPanel logs={logs} status={status} />
         </section>

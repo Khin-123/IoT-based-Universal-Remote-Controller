@@ -581,12 +581,76 @@ input[type="range"] {
 }
 
 @media (max-width: 1100px) {
+  .app-page {
+    height: auto;
+    min-height: calc(100dvh - 24px);
+    grid-template-rows: auto auto;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
+    height: auto;
+    gap: 10px;
+  }
+
+  .left-panel,
+  .right-panel {
+    overflow: visible;
+  }
+
+  .left-panel {
+    grid-template-rows: auto auto;
+  }
+
+  .device-list-section {
+    grid-template-rows: auto auto;
+  }
+
+  .device-list,
+  .controls-area {
+    overflow: visible;
+    max-height: none;
+    padding-right: 0;
   }
 
   .right-panel {
-    grid-template-rows: minmax(0, 1fr) minmax(220px, 32dvh);
+    grid-template-rows: auto minmax(220px, 32dvh);
+  }
+
+  .control-card {
+    overflow: visible;
+  }
+}
+
+@media (max-height: 720px) {
+  .app-page {
+    height: auto;
+    min-height: calc(100dvh - 24px);
+    grid-template-rows: auto auto;
+  }
+
+  .app-shell {
+    height: auto;
+  }
+
+  .left-panel,
+  .right-panel {
+    overflow: visible;
+  }
+
+  .device-list,
+  .controls-area {
+    overflow: visible;
+    max-height: none;
+    padding-right: 0;
+  }
+
+  .right-panel {
+    grid-template-rows: auto minmax(180px, 32dvh);
+  }
+
+  .control-card {
+    overflow: visible;
   }
 }
 

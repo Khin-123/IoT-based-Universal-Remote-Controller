@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
@@ -8,290 +8,19 @@ import {
   signInWithPopup,
   signOut,
 } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
-import { auth, db } from "./firebase";
+import { auth } from "./firebase";
+import { apiCall } from "./api";
+import { ControlPanel } from "./components/ControlPanel";
+import { DeviceSidebar } from "./components/DeviceSidebar";
+import { AuthCard, RemotePicker, VerifyEmailCard } from "./components/SetupPanels";
+import { TerminalPanel } from "./components/TerminalPanel";
+import {
+  DEFAULT_CONTROL_VALUES,
+  isValidName,
+  normalizeDeviceType,
+  suggestNextDeviceName,
+} from "./deviceUtils";
 import "./App.css";
-
-function resolveApiBaseUrl() {
-  const explicitBase = String(import.meta.env.VITE_API_BASE_URL || "").trim();
-  if (typeof window !== "undefined") {
-    const { protocol, hostname } = window.location;
-    const apiProtocol = protocol === "https:" ? "https:" : "http:";
-    const inferredBase = `${apiProtocol}//${hostname}:3000`;
-
-    if (explicitBase) {
-      try {
-        const parsed = new URL(explicitBase);
-        const explicitHost = parsed.hostname.toLowerCase();
-        const pageHost = hostname.toLowerCase();
-        const pageIsLocalhost = pageHost === "localhost" || pageHost === "127.0.0.1";
-        const apiIsLocalhost = explicitHost === "localhost" || explicitHost === "127.0.0.1";
-
-        // When the app is opened from another device, a localhost API target would point
-        // back to that device rather than this PC, so prefer the current host instead.
-        if (apiIsLocalhost && !pageIsLocalhost) {
-          return inferredBase;
-        }
-      } catch {
-        return explicitBase.replace(/\/+$/, "");
-      }
-
-      return explicitBase.replace(/\/+$/, "");
-    }
-
-    return inferredBase;
-  }
-
-  return "http://localhost:3000";
-}
-
-const API_BASE_URL = resolveApiBaseUrl();
-// Allow spaces and most symbols, but block "." and "/" to keep Firestore update paths safe.
-const NAME_PATTERN = /^[^./\n\r\t]+$/;
-const DEVICE_TYPE_OPTIONS = ["TV", "AC", "FAN", "PROJECTOR"];
-const DEFAULT_CONTROL_VALUES = {
-  acTemp: 24,
-  acMode: "cooling",
-  tvVolume: 5,
-  tvChannel: 1,
-  fanSpeed: 1,
-};
-
-async function apiCall(path, { method = "GET", token, body } = {}) {
-  const headers = { Authorization: `Bearer ${token}` };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
-
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-
-  const raw = await response.text();
-  let payload = {};
-  try {
-    payload = raw ? JSON.parse(raw) : {};
-  } catch {
-    payload = { message: raw || "Request failed." };
-  }
-
-  if (!response.ok || payload.success === false) {
-    throw new Error(payload.message || "Request failed.");
-  }
-
-  return payload;
-}
-
-async function queuePendingCommand(uid, deviceName, commandName) {
-  await setDoc(
-    doc(db, "commands", uid),
-    {
-      pending: {
-        device: deviceName,
-        command: commandName,
-        timestamp: Date.now(),
-      },
-    },
-    { merge: true }
-  );
-}
-
-function isValidName(value) {
-  return NAME_PATTERN.test(String(value || "").trim());
-}
-
-function inferDeviceType(deviceName) {
-  const upper = String(deviceName || "").toUpperCase();
-  if (upper.startsWith("TV")) return "TV";
-  if (upper.startsWith("AC")) return "AC";
-  if (upper.startsWith("FAN")) return "FAN";
-  if (upper.startsWith("PROJECTOR")) return "PROJECTOR";
-  return "UNKNOWN";
-}
-
-function normalizeDeviceType(type, deviceName) {
-  const normalized = String(type || "").trim().toUpperCase();
-  if (DEVICE_TYPE_OPTIONS.includes(normalized)) return normalized;
-  return inferDeviceType(deviceName);
-}
-
-function labelForMode(viewMode) {
-  if (viewMode === "add") return "Learn";
-  if (viewMode === "edit") return "Edit";
-  if (viewMode === "send") return "Send";
-  return "Idle";
-}
-
-function AuthCard({
-  busy,
-  isRegister,
-  email,
-  password,
-  status,
-  onToggle,
-  onSubmit,
-  onGoogle,
-  setEmail,
-  setPassword,
-}) {
-  return (
-    <section className="auth-wrap">
-      <section className="auth-card">
-        <h1>Smart IR Remote Hub</h1>
-
-        <form className="auth-form" onSubmit={onSubmit}>
-          <label>
-            Email
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          </label>
-
-          <label>
-            Password
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-          </label>
-
-          <button type="submit" disabled={busy || !email.trim() || !password.trim()}>
-            {isRegister ? "Register" : "Login"}
-          </button>
-        </form>
-
-        <div className="auth-buttons">
-          <button className="ghost" onClick={onGoogle} disabled={busy}>Continue with Google</button>
-          <button className="link" onClick={onToggle} disabled={busy}>
-            {isRegister ? "Already have an account? Login" : "Need an account? Register"}
-          </button>
-        </div>
-
-        <p className="terminal-line">{busy ? "Working..." : status}</p>
-      </section>
-    </section>
-  );
-}
-
-function VerifyEmailCard({ busy, status, email, onRefresh, onResend, onLogout }) {
-  return (
-    <section className="auth-wrap">
-      <section className="auth-card">
-        <h1>Verify Your Email</h1>
-        <p className="muted">
-          {email
-            ? `A verification link was sent to ${email}.`
-            : "A verification email has been sent to your inbox."}
-        </p>
-        <p className="muted">Open the link in your email, then return here and refresh your status.</p>
-
-        <div className="auth-buttons">
-          <button onClick={onRefresh} disabled={busy}>I've verified my email</button>
-          <button className="ghost" onClick={onResend} disabled={busy}>Resend verification email</button>
-          <button className="danger" onClick={onLogout} disabled={busy}>Logout</button>
-        </div>
-
-        <p className="terminal-line">{busy ? "Working..." : status}</p>
-      </section>
-    </section>
-  );
-}
-
-function RemotePicker({
-  remotes,
-  selectedRemoteId,
-  espId,
-  remoteName,
-  busy,
-  status,
-  onSelect,
-  onAdd,
-  onRemove,
-  onBackToAuth,
-  setEspId,
-  setRemoteName,
-}) {
-  return (
-    <section className="auth-wrap">
-      <section className="auth-card">
-        <h1>Select Remote</h1>
-
-        {remotes.length === 0 ? (
-          <p className="muted">No remotes added yet.</p>
-        ) : (
-          <div className="device-list">
-            {remotes.map((r) => (
-              <article
-                key={r.remoteId}
-                className={`device-item ${selectedRemoteId === r.remoteId ? "active" : ""}`}
-                onClick={() => onSelect(r.remoteId)}
-              >
-                <div className="device-item-top">
-                  <strong>{r.name || r.remoteId}</strong>
-                  <span className="badge">{r.remoteId}</span>
-                </div>
-                <div className="device-item-actions">
-                  <button
-                    className="danger tiny"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onRemove(r.remoteId);
-                    }}
-                    disabled={busy}
-                  >
-                    Remove
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-
-        <div className="divider" />
-
-        <h3>Add Remote (ESP ID)</h3>
-        <form
-          className="auth-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            onAdd();
-          }}
-        >
-          <label>
-            ESP ID (from Serial Monitor)
-            <input value={espId} onChange={(e) => setEspId(e.target.value)} placeholder="e.g. 24A160FF12AB" required />
-          </label>
-
-          <label>
-            Remote name
-            <input value={remoteName} onChange={(e) => setRemoteName(e.target.value)} placeholder="Living room" required />
-          </label>
-
-          <button type="submit" disabled={busy || !espId.trim() || !remoteName.trim()}>
-            Add Remote
-          </button>
-        </form>
-
-        <p className="terminal-line">{busy ? "Working..." : status}</p>
-
-        <div className="auth-buttons">
-          <button className="ghost" onClick={onBackToAuth} disabled={busy}>
-            Back to Login / Signup
-          </button>
-        </div>
-      </section>
-    </section>
-  );
-}
-
-function TerminalPanel({ logs, status }) {
-  return (
-    <section className="terminal-card">
-      <header className="terminal-head">Terminal</header>
-      <div className="terminal-body">
-        <div className="terminal-line">{status}</div>
-        {logs.length === 0
-          ? <div className="terminal-line">No events</div>
-          : logs.map((entry) => <div key={entry.id} className="terminal-line">{entry.text}</div>)}
-      </div>
-    </section>
-  );
-}
 
 export default function App() {
   const [authReady, setAuthReady] = useState(false);
@@ -326,7 +55,7 @@ export default function App() {
   );
 
   const activeDevice = useMemo(
-    () => sortedDevices.find((d) => d.deviceName === activeDeviceName) || null,
+    () => sortedDevices.find((device) => device.deviceName === activeDeviceName) || null,
     [sortedDevices, activeDeviceName]
   );
 
@@ -416,21 +145,6 @@ export default function App() {
     resetControlValues();
   }
 
-  function suggestNextDeviceName(type, list) {
-    const prefix = String(type || "DEVICE").toUpperCase();
-    const candidates = list
-      .map((d) => d.deviceName)
-      .filter((name) => name.toUpperCase().startsWith(prefix));
-
-    let maxSuffix = 0;
-    for (const name of candidates) {
-      const suffix = Number(name.slice(prefix.length));
-      if (Number.isFinite(suffix) && suffix > maxSuffix) maxSuffix = suffix;
-    }
-
-    return `${prefix}${maxSuffix + 1}`;
-  }
-
   function hasCommand(device, commandName) {
     if (!device) return false;
     return Object.prototype.hasOwnProperty.call(device.commands || {}, commandName);
@@ -455,7 +169,7 @@ export default function App() {
         body: { remoteId: activeRemoteId, deviceName, commandName, deviceType: activeType },
       });
 
-      setPendingLearnCount((n) => n + 1);
+      setPendingLearnCount((count) => count + 1);
       addLog(`IR learned: ${deviceName}/${commandName}`);
       await loadDevices(token, activeRemoteId, payload.message || "IR learned.");
     });
@@ -568,34 +282,6 @@ export default function App() {
       setViewMode("send");
       setPendingLearnCount(0);
       addLog(`Device updated: ${nextName || activeDevice.deviceName}`);
-    });
-  }
-
-  async function handleRenameDevice(deviceName) {
-    if (!user) return;
-
-    const newDeviceName = window.prompt("Rename device", deviceName);
-    if (!newDeviceName) return;
-
-    const cleaned = newDeviceName.trim();
-    if (!isValidName(cleaned)) {
-      const msg = "Invalid name.";
-      setStatus(msg);
-      addLog(msg);
-      return;
-    }
-
-    await runAction("Rename", async () => {
-      const token = await getToken();
-      await apiCall("/api/device/rename", {
-        method: "PATCH",
-        token,
-        body: { remoteId: activeRemoteId, oldDeviceName: deviceName, newDeviceName: cleaned },
-      });
-
-      await loadDevices(token, activeRemoteId, "Device renamed.");
-      if (activeDeviceName === deviceName) setActiveDeviceName(cleaned);
-      addLog(`Renamed: ${deviceName} -> ${cleaned}`);
     });
   }
 
@@ -862,7 +548,7 @@ export default function App() {
           email={email}
           password={password}
           status={status}
-          onToggle={() => setIsRegister((v) => !v)}
+          onToggle={() => setIsRegister((value) => !value)}
           onSubmit={handleEmailAuth}
           onGoogle={handleGoogleLogin}
           setEmail={setEmail}
@@ -924,357 +610,40 @@ export default function App() {
       </nav>
 
       <section className="app-shell">
-        <aside className="left-panel glass-card">
-          <section className="left-section compact">
-            <h3>Add Device</h3>
-            <div className="type-grid">
-              {DEVICE_TYPE_OPTIONS.map((type) => (
-                <button
-                  key={type}
-                  className={`type-button ${viewMode === "add" && draftType === type ? "active" : ""}`}
-                  onClick={() => beginAddDevice(type)}
-                  disabled={busy}
-                >
-                  {type}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="left-section device-list-section">
-            <div className="section-head">
-              <h3>My Devices</h3>
-              <button className="ghost tiny" onClick={handleRefresh} disabled={busy}>Refresh</button>
-            </div>
-
-            {sortedDevices.length === 0 ? (
-              <p className="muted">No devices.</p>
-            ) : (
-              <div className="device-list">
-                {sortedDevices.map((device) => {
-                  const isActive = device.deviceName === activeDeviceName;
-                  return (
-                    <article
-                      key={device.deviceName}
-                      className={`device-item ${isActive ? "active" : ""}`}
-                      onClick={() => openDeviceSendMode(device.deviceName)}
-                    >
-                      <div className="device-item-top">
-                        <strong>{device.deviceName}</strong>
-                        <span className="badge">{normalizeDeviceType(device.type, device.deviceName)}</span>
-                      </div>
-
-                      <div className="device-item-actions">
-                        <button
-                          className="ghost tiny"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openDeviceEditMode(device.deviceName);
-                          }}
-                          disabled={busy}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          className="danger tiny"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteDevice(device.deviceName);
-                          }}
-                          disabled={busy}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-        </aside>
+        <DeviceSidebar
+          busy={busy}
+          devices={sortedDevices}
+          activeDeviceName={activeDeviceName}
+          draftType={draftType}
+          viewMode={viewMode}
+          onAddDevice={beginAddDevice}
+          onRefresh={handleRefresh}
+          onOpenSend={openDeviceSendMode}
+          onOpenEdit={openDeviceEditMode}
+          onDelete={handleDeleteDevice}
+        />
 
         <section className="right-panel">
-          <section className="control-card glass-card">
-            <header className="control-head">
-              <h2>{panelTitle}</h2>
-              <span className="mode-pill">{labelForMode(viewMode)}</span>
-            </header>
-
-            {viewMode === "idle" && (
-              <div className="idle-state">
-                <p>Select a device</p>
-              </div>
-            )}
-
-            {viewMode !== "idle" && (
-              <div className="controls-area">
-                {(viewMode === "add" || viewMode === "edit") && (
-                  <div className="control-row setup-row">
-                    <span>Device name</span>
-                    <input
-                      value={viewMode === "add" ? draftDeviceName : editDeviceName}
-                      onChange={(e) => (viewMode === "add" ? setDraftDeviceName(e.target.value) : setEditDeviceName(e.target.value))}
-                      placeholder={viewMode === "add" ? `${draftType}1` : "Device name"}
-                      className="device-name-input"
-                    />
-                  </div>
-                )}
-
-                {activeType === "AC" && (
-                  <>
-                    <div className="control-row ac-row-2">
-                      <div className="ac-power">
-                        <span className="mini-label">Power</span>
-                        <div className="control-actions no-wrap">
-                          <button onClick={() => executeCommand("power_on")} disabled={controlsDisabled}>On</button>
-                          <button className="ghost" onClick={() => executeCommand("power_off")} disabled={controlsDisabled}>Off</button>
-                        </div>
-                      </div>
-
-                      <div className="ac-temp">
-                        <span className="mini-label">Temp ({controlValues.acTemp}°C)</span>
-                        <div className="slider-learn-row">
-                          <button
-                            type="button"
-                            className="edge-btn ghost"
-                            onClick={() => setControlValues((prev) => ({ ...prev, acTemp: Math.max(17, prev.acTemp - 1) }))}
-                            disabled={controlsDisabled}
-                            aria-label="Decrease temperature"
-                          >
-                            -
-                          </button>
-                          <input
-                            type="range"
-                            min={17}
-                            max={25}
-                            step={1}
-                            value={controlValues.acTemp}
-                            onChange={(e) => setControlValues((prev) => ({ ...prev, acTemp: Number(e.target.value) }))}
-                            disabled={controlsDisabled}
-                          />
-                          <button
-                            type="button"
-                            className="edge-btn ghost"
-                            onClick={() => setControlValues((prev) => ({ ...prev, acTemp: Math.min(25, prev.acTemp + 1) }))}
-                            disabled={controlsDisabled}
-                            aria-label="Increase temperature"
-                          >
-                            +
-                          </button>
-                          <button
-                            className="tiny-cta"
-                            onClick={() => executeCommand(`temp_${controlValues.acTemp}`)}
-                            disabled={controlsDisabled}
-                          >
-                            {viewMode === "send" ? "Send" : "Learn"}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="control-row inline-row">
-                      <span>Mode</span>
-                      <div className="control-actions mode-actions">
-                        <button
-                          className={controlValues.acMode === "cooling" ? "active-choice" : ""}
-                          onClick={async () => {
-                            setControlValues((prev) => ({ ...prev, acMode: "cooling" }));
-                            await executeCommand("mode_cooling");
-                          }}
-                          disabled={controlsDisabled}
-                        >
-                          Cooling
-                        </button>
-                        <button
-                          className={controlValues.acMode === "fan" ? "active-choice" : ""}
-                          onClick={async () => {
-                            setControlValues((prev) => ({ ...prev, acMode: "fan" }));
-                            await executeCommand("mode_fan");
-                          }}
-                          disabled={controlsDisabled}
-                        >
-                          Fan
-                        </button>
-                        <button
-                          className={controlValues.acMode === "heating" ? "active-choice" : ""}
-                          onClick={async () => {
-                            setControlValues((prev) => ({ ...prev, acMode: "heating" }));
-                            await executeCommand("mode_heating");
-                          }}
-                          disabled={controlsDisabled}
-                        >
-                          Heating
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {activeType === "TV" && (
-                  <>
-                    <div className="control-row inline-row">
-                      <span>Power</span>
-                      <div className="control-actions no-wrap">
-                        <button onClick={() => executeCommand("power")} disabled={controlsDisabled}>Power</button>
-                      </div>
-                    </div>
-
-                    <div className="control-row tv-sliders-row">
-                      <div className="tv-slider-card">
-                        <span className="mini-label">Volume ({controlValues.tvVolume})</span>
-                        <div className="slider-learn-row">
-                          <button
-                            type="button"
-                            className="edge-btn ghost"
-                            onClick={() => setControlValues((prev) => ({ ...prev, tvVolume: Math.max(0, prev.tvVolume - 1) }))}
-                            disabled={controlsDisabled}
-                            aria-label="Decrease volume"
-                          >
-                            -
-                          </button>
-                          <input
-                            type="range"
-                            min={0}
-                            max={10}
-                            step={1}
-                            value={controlValues.tvVolume}
-                            onChange={(e) => setControlValues((prev) => ({ ...prev, tvVolume: Number(e.target.value) }))}
-                            disabled={controlsDisabled}
-                          />
-                          <button
-                            type="button"
-                            className="edge-btn ghost"
-                            onClick={() => setControlValues((prev) => ({ ...prev, tvVolume: Math.min(10, prev.tvVolume + 1) }))}
-                            disabled={controlsDisabled}
-                            aria-label="Increase volume"
-                          >
-                            +
-                          </button>
-                          <button
-                            className="tiny-cta"
-                            onClick={() => executeCommand(`volume_${controlValues.tvVolume}`)}
-                            disabled={controlsDisabled}
-                          >
-                            {viewMode === "send" ? "Send" : "Learn"}
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="tv-slider-card">
-                        <span className="mini-label">Channel ({controlValues.tvChannel})</span>
-                        <div className="slider-learn-row">
-                          <button
-                            type="button"
-                            className="edge-btn ghost"
-                            onClick={() => setControlValues((prev) => ({ ...prev, tvChannel: Math.max(1, prev.tvChannel - 1) }))}
-                            disabled={controlsDisabled}
-                            aria-label="Decrease channel"
-                          >
-                            -
-                          </button>
-                          <input
-                            type="range"
-                            min={1}
-                            max={20}
-                            step={1}
-                            value={controlValues.tvChannel}
-                            onChange={(e) => setControlValues((prev) => ({ ...prev, tvChannel: Number(e.target.value) }))}
-                            disabled={controlsDisabled}
-                          />
-                          <button
-                            type="button"
-                            className="edge-btn ghost"
-                            onClick={() => setControlValues((prev) => ({ ...prev, tvChannel: Math.min(20, prev.tvChannel + 1) }))}
-                            disabled={controlsDisabled}
-                            aria-label="Increase channel"
-                          >
-                            +
-                          </button>
-                          <button
-                            className="tiny-cta"
-                            onClick={() => executeCommand(`channel_${controlValues.tvChannel}`)}
-                            disabled={controlsDisabled}
-                          >
-                            {viewMode === "send" ? "Send" : "Learn"}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {activeType === "FAN" && (
-                  <>
-                    <div className="control-row inline-row">
-                      <span>Power</span>
-                      <div className="control-actions no-wrap">
-                        <button onClick={() => executeCommand("power")} disabled={controlsDisabled}>Power</button>
-                      </div>
-                    </div>
-
-                    <div className="control-row">
-                      <span className="mini-label">Speed ({controlValues.fanSpeed})</span>
-                      <div className="slider-learn-row">
-                        <button
-                          type="button"
-                          className="edge-btn ghost"
-                          onClick={() => setControlValues((prev) => ({ ...prev, fanSpeed: Math.max(1, prev.fanSpeed - 1) }))}
-                          disabled={controlsDisabled}
-                          aria-label="Decrease speed"
-                        >
-                          -
-                        </button>
-                        <input
-                          type="range"
-                          min={1}
-                          max={3}
-                          step={1}
-                          value={controlValues.fanSpeed}
-                          onChange={(e) => setControlValues((prev) => ({ ...prev, fanSpeed: Number(e.target.value) }))}
-                          disabled={controlsDisabled}
-                        />
-                        <button
-                          type="button"
-                          className="edge-btn ghost"
-                          onClick={() => setControlValues((prev) => ({ ...prev, fanSpeed: Math.min(3, prev.fanSpeed + 1) }))}
-                          disabled={controlsDisabled}
-                          aria-label="Increase speed"
-                        >
-                          +
-                        </button>
-                        <button
-                          className="tiny-cta"
-                          onClick={() => executeCommand(`speed_${controlValues.fanSpeed}`)}
-                          disabled={controlsDisabled}
-                        >
-                          {viewMode === "send" ? "Send" : "Learn"}
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {activeType === "PROJECTOR" && (
-                  <div className="control-row inline-row">
-                    <span>Power</span>
-                    <div className="control-actions no-wrap">
-                      <button onClick={() => executeCommand("power")} disabled={controlsDisabled}>Power</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <footer className="control-footer">
-              {viewMode === "add" && (
-                <button onClick={handleSaveNewDevice} disabled={!canSaveNew || busy}>Save Device</button>
-              )}
-              {viewMode === "edit" && (
-                <button onClick={handleSaveEdit} disabled={!canSaveEdit || busy}>Save Changes</button>
-              )}
-            </footer>
-          </section>
+          <ControlPanel
+            activeDevice={activeDevice}
+            activeType={activeType}
+            busy={busy}
+            canSaveEdit={canSaveEdit}
+            canSaveNew={canSaveNew}
+            controlValues={controlValues}
+            controlsDisabled={controlsDisabled}
+            draftDeviceName={draftDeviceName}
+            draftType={draftType}
+            editDeviceName={editDeviceName}
+            panelTitle={panelTitle}
+            viewMode={viewMode}
+            onExecuteCommand={executeCommand}
+            onSaveEdit={handleSaveEdit}
+            onSaveNewDevice={handleSaveNewDevice}
+            setControlValues={setControlValues}
+            setDraftDeviceName={setDraftDeviceName}
+            setEditDeviceName={setEditDeviceName}
+          />
 
           <TerminalPanel logs={logs} status={status} />
         </section>
@@ -1282,5 +651,3 @@ export default function App() {
     </main>
   );
 }
-
-

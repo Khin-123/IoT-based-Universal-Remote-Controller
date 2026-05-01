@@ -12,7 +12,37 @@ import { verifyFirebaseToken } from "./authMiddleware.js";
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(moduleDir, "..", ".env") });
 const app = express();
-app.use(cors());
+
+function parseAllowedOrigins() {
+  const configured = String(process.env.FRONTEND_ORIGIN || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const defaults = ["http://localhost:5173"];
+  const all = [...defaults, ...configured];
+  return [...new Set(all)];
+}
+
+const allowedOrigins = parseAllowedOrigins();
+app.use(
+  cors({
+    origin(origin, callback) {
+      // Allow non-browser clients and same-origin calls.
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
+  })
+);
 app.use(express.json({ limit: "256kb" }));
 
 const PORT = Number(process.env.PORT || 3000);

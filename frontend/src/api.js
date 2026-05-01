@@ -1,33 +1,10 @@
 function resolveApiBaseUrl() {
   const explicitBase = String(import.meta.env.VITE_API_BASE_URL || "").trim();
-  if (typeof window !== "undefined") {
-    const { protocol, hostname } = window.location;
-    const apiProtocol = protocol === "https:" ? "https:" : "http:";
-    const inferredBase = `${apiProtocol}//${hostname}:3000`;
-
-    if (explicitBase) {
-      try {
-        const parsed = new URL(explicitBase);
-        const explicitHost = parsed.hostname.toLowerCase();
-        const pageHost = hostname.toLowerCase();
-        const pageIsLocalhost = pageHost === "localhost" || pageHost === "127.0.0.1";
-        const apiIsLocalhost = explicitHost === "localhost" || explicitHost === "127.0.0.1";
-
-        // When the app is opened from another device, a localhost API target would point
-        // back to that device rather than this PC, so prefer the current host instead.
-        if (apiIsLocalhost && !pageIsLocalhost) {
-          return inferredBase;
-        }
-      } catch {
-        return explicitBase.replace(/\/+$/, "");
-      }
-
-      return explicitBase.replace(/\/+$/, "");
-    }
-
-    return inferredBase;
+  if (explicitBase) {
+    return explicitBase.replace(/\/+$/, "");
   }
 
+  // Safe fallback for local development.
   return "http://localhost:3000";
 }
 

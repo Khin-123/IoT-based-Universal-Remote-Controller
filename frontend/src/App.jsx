@@ -19,6 +19,7 @@ import {
   isValidName,
   normalizeDeviceType,
   suggestNextDeviceName,
+  labelForMode,
 } from "./deviceUtils";
 import "./App.css";
 
@@ -624,28 +625,6 @@ export default function App() {
         />
 
         <section className="right-panel">
-<<<<<<< HEAD
-          <ControlPanel
-            activeDevice={activeDevice}
-            activeType={activeType}
-            busy={busy}
-            canSaveEdit={canSaveEdit}
-            canSaveNew={canSaveNew}
-            controlValues={controlValues}
-            controlsDisabled={controlsDisabled}
-            draftDeviceName={draftDeviceName}
-            draftType={draftType}
-            editDeviceName={editDeviceName}
-            panelTitle={panelTitle}
-            viewMode={viewMode}
-            onExecuteCommand={executeCommand}
-            onSaveEdit={handleSaveEdit}
-            onSaveNewDevice={handleSaveNewDevice}
-            setControlValues={setControlValues}
-            setDraftDeviceName={setDraftDeviceName}
-            setEditDeviceName={setEditDeviceName}
-          />
-=======
           <section className="control-card glass-card">
             <header className="control-head">
               <h2>{panelTitle}</h2>
@@ -924,7 +903,6 @@ export default function App() {
               )}
             </footer>
           </section>
->>>>>>> 4174bad112e9d7d89f0f1260d83895f8fe7e970b
 
           <TerminalPanel logs={logs} status={status} />
         </section>

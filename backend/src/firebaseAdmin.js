@@ -30,6 +30,12 @@ function readServiceAccount() {
     return JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
   }
 
+  // In hosted environments (Render, Vercel, etc), require secret env var and
+  // do not allow local key-file paths.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Missing FIREBASE_SERVICE_ACCOUNT_JSON in production.");
+  }
+
   const p = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
   if (p) {
     const abs = resolveServiceAccountPath(p);

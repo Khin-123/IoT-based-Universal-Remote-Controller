@@ -182,16 +182,17 @@ Create `backend/.env`:
 ```env
 PORT=3000
 ESP32_BASE_URL=http://<ESP32_IP>
-FIREBASE_SERVICE_ACCOUNT_PATH=./serviceAccountKey.json
-```
-
-Alternative instead of path:
-
-```env
 FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
 ```
 
-Place `serviceAccountKey.json` inside `backend/` if using path mode.
+Local development alternative:
+
+```env
+FIREBASE_SERVICE_ACCOUNT_PATH=./serviceAccountKey.json
+```
+
+For production (e.g. Render), use only `FIREBASE_SERVICE_ACCOUNT_JSON` as a secret env var.
+Do not commit `serviceAccountKey.json` to git.
 
 Run backend:
 

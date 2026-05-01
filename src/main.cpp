@@ -9,7 +9,7 @@
 #include <WebSocketsClient.h>
 
 const char *WIFI_SSID = "wifi";
-const char *WIFI_PASS = "pwd";
+const char *WIFI_PASS = "password";
 
 #define IR_RECV_PIN 14
 #define IR_SEND_PIN 4
@@ -41,6 +41,16 @@ const bool BACKEND_SSL = true;
 
 String ESP_ID = "";
 unsigned long lastWsReconnectAttemptMs = 0;
+bool wsInitialized = false;
+
+void logHeap(const char *tag) {
+  Serial.printf(
+      "[HEAP] %s free=%u min=%u maxAlloc=%u\n",
+      tag,
+      ESP.getFreeHeap(),
+      ESP.getMinFreeHeap(),
+      ESP.getMaxAllocHeap());
+}
 
 String escapeJson(String s) {
   s.replace("\\", "\\\\");
@@ -346,10 +356,12 @@ void onWsEvent(WStype_t type, uint8_t *payload, size_t length) {
   switch (type) {
     case WStype_CONNECTED:
       Serial.println("[WS] Connected.");
+      logHeap("ws connected");
       wsHello();
       break;
     case WStype_DISCONNECTED:
       Serial.println("[WS] Disconnected.");
+      logHeap("ws disconnected");
       break;
     case WStype_TEXT: {
       String text = String((const char *)payload).substring(0, length);
@@ -410,12 +422,13 @@ void onWsEvent(WStype_t type, uint8_t *payload, size_t length) {
 void connectWsIfNeeded() {
   if (WiFi.status() != WL_CONNECTED) return;
 
-  // WebSocketsClient will auto-reconnect, but we throttle begin() attempts here.
-  if (ws.isConnected()) return;
+  // Start the websocket client once, then let the library handle reconnects.
+  if (wsInitialized) return;
   if (millis() - lastWsReconnectAttemptMs < 2000) return;
   lastWsReconnectAttemptMs = millis();
 
   Serial.printf("[WS] Connecting to %s:%u%s (ssl=%s)\n", BACKEND_HOST, BACKEND_PORT, BACKEND_PATH, BACKEND_SSL ? "true" : "false");
+  logHeap("before ws begin");
 
   if (BACKEND_SSL) {
     ws.beginSSL(BACKEND_HOST, BACKEND_PORT, BACKEND_PATH);
@@ -424,6 +437,7 @@ void connectWsIfNeeded() {
   }
   ws.onEvent(onWsEvent);
   ws.setReconnectInterval(3000);
+  wsInitialized = true;
 }
 
 void setup() {
@@ -434,6 +448,7 @@ void setup() {
   Serial.println("[ESP] ID: " + ESP_ID);
 
   connectWiFi();
+  logHeap("after wifi");
 
   irrecv.enableIRIn();
   irsend.begin();
@@ -444,6 +459,7 @@ void setup() {
   server.begin();
 
   Serial.println("[BOOT] ESP32 IR API started.");
+  logHeap("boot complete");
 }
 
 void loop() {

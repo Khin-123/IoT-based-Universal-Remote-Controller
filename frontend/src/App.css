@@ -624,81 +624,17 @@ input[type="range"] {
 
   .app-shell {
     grid-template-columns: 1fr;
-<<<<<<< HEAD
-    height: auto;
-    gap: 10px;
-=======
     grid-template-rows: minmax(220px, 0.85fr) minmax(0, 1.15fr);
->>>>>>> 4174bad112e9d7d89f0f1260d83895f8fe7e970b
   }
 
   .left-panel,
   .right-panel {
-<<<<<<< HEAD
-    overflow: visible;
-  }
-
-  .left-panel {
-    grid-template-rows: auto auto;
-  }
-
-  .device-list-section {
-    grid-template-rows: auto auto;
-  }
-
-  .device-list,
-  .controls-area {
-    overflow: visible;
-    max-height: none;
-    padding-right: 0;
-  }
-
-  .right-panel {
-    grid-template-rows: auto minmax(220px, 32dvh);
-  }
-
-  .control-card {
-    overflow: visible;
-  }
-}
-
-@media (max-height: 720px) {
-  .app-page {
-    height: auto;
-    min-height: calc(100dvh - 24px);
-    grid-template-rows: auto auto;
-  }
-
-  .app-shell {
-    height: auto;
-  }
-
-  .left-panel,
-  .right-panel {
-    overflow: visible;
-  }
-
-  .device-list,
-  .controls-area {
-    overflow: visible;
-    max-height: none;
-    padding-right: 0;
-  }
-
-  .right-panel {
-    grid-template-rows: auto minmax(180px, 32dvh);
-  }
-
-  .control-card {
-    overflow: visible;
-=======
     min-height: 0;
     overflow: hidden;
   }
 
   .right-panel {
     grid-template-rows: 70% 30%;
->>>>>>> 4174bad112e9d7d89f0f1260d83895f8fe7e970b
   }
 }
 
@@ -845,26 +781,22 @@ input[type="range"] {
   html,
   body,
   #root {
-    height: auto;
     min-height: 100%;
     overflow-x: hidden;
-    overflow-y: auto;
+    overflow-y: hidden;
   }
 
   .page {
-    height: auto;
     min-height: 100vh;
     min-height: 100dvh;
     overflow: visible;
   }
 
   .app-page {
-    height: auto;
     min-height: calc(100dvh - 24px);
   }
 
   .app-shell {
-    height: auto;
     overflow: visible;
   }
 
@@ -872,7 +804,7 @@ input[type="range"] {
   .right-panel,
   .control-card,
   .terminal-card {
-    height: auto;
+    min-height: 0;
     overflow: visible;
   }
 

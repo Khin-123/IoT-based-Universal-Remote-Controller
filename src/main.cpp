@@ -8,8 +8,8 @@
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>
 
-const char *WIFI_SSID = "wifi";
-const char *WIFI_PASS = "password";
+const char *WIFI_SSID = "HONOR 200";
+const char *WIFI_PASS = "swampyae2005";
 
 #define IR_RECV_PIN 14
 #define IR_SEND_PIN 4
@@ -27,17 +27,17 @@ IRsend irsend(IR_SEND_PIN);
 decode_results results;
 WebSocketsClient ws;
 
-// Configure your deployed backend here.
-const char *BACKEND_HOST = "smart-ir-remote-hub.onrender.com";
-const uint16_t BACKEND_PORT = 443;
+// Local backend settings. Use your PC's LAN IP so the ESP32 can reach it.
+const char *BACKEND_HOST = "192.168.99.122";
+const uint16_t BACKEND_PORT = 3000;
 const char *BACKEND_PATH = "/ws";
-const bool BACKEND_SSL = true;
+const bool BACKEND_SSL = false;
 
-// This is for Local.
-// const char *BACKEND_HOST = "10.159.62.238";
-// const uint16_t BACKEND_PORT = 3000;
+// Deployed backend settings, for later:
+// const char *BACKEND_HOST = "smart-ir-remote-hub.onrender.com";
+// const uint16_t BACKEND_PORT = 443;
 // const char *BACKEND_PATH = "/ws";
-// const bool BACKEND_SSL = false;
+// const bool BACKEND_SSL = true;
 
 String ESP_ID = "";
 unsigned long lastWsReconnectAttemptMs = 0;

@@ -27,17 +27,17 @@ IRsend irsend(IR_SEND_PIN);
 decode_results results;
 WebSocketsClient ws;
 
-// Local backend settings. Use your PC's LAN IP so the ESP32 can reach it.
-const char *BACKEND_HOST = "192.168.99.122";
-const uint16_t BACKEND_PORT = 3000;
+// Deployed backend settings.
+const char *BACKEND_HOST = "smart-ir-remote-hub.onrender.com";
+const uint16_t BACKEND_PORT = 443;
 const char *BACKEND_PATH = "/ws";
-const bool BACKEND_SSL = false;
+const bool BACKEND_SSL = true;
 
-// Deployed backend settings, for later:
-// const char *BACKEND_HOST = "smart-ir-remote-hub.onrender.com";
-// const uint16_t BACKEND_PORT = 443;
+// Local backend settings, for later:
+// const char *BACKEND_HOST = "192.168.99.122";
+// const uint16_t BACKEND_PORT = 3000;
 // const char *BACKEND_PATH = "/ws";
-// const bool BACKEND_SSL = true;
+// const bool BACKEND_SSL = false;
 
 String ESP_ID = "";
 unsigned long lastWsReconnectAttemptMs = 0;

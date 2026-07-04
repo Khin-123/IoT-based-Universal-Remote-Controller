@@ -1,10 +1,17 @@
+const DEPLOYED_API_BASE_URL = "https://smart-ir-remote-hub.onrender.com";
+
 function resolveApiBaseUrl() {
   const explicitBase = String(import.meta.env.VITE_API_BASE_URL || "").trim();
   if (explicitBase) {
     return explicitBase.replace(/\/+$/, "");
   }
 
-  // Safe fallback for local development.
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname.toLowerCase();
+    const isLocalhost = host === "localhost" || host === "127.0.0.1";
+    if (!isLocalhost) return DEPLOYED_API_BASE_URL;
+  }
+
   return "http://localhost:3000";
 }
 

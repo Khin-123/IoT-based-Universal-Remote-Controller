@@ -167,35 +167,19 @@ export function ControlPanel({
 
               <div className="control-row tv-sliders-row">
                 <div className="tv-slider-card">
-                  <SliderCommand
-                    label="Volume"
-                    value={controlValues.tvVolume}
-                    min={0}
-                    max={10}
-                    commandPrefix="volume"
-                    controlsDisabled={controlsDisabled}
-                    viewMode={viewMode}
-                    onChange={(value) => updateControlValue("tvVolume", value)}
-                    onExecute={onExecuteCommand}
-                    decreaseLabel="Decrease volume"
-                    increaseLabel="Increase volume"
-                  />
+                  <span className="mini-label">Volume</span>
+                  <div className="control-actions mode-actions">
+                    <button onClick={() => onExecuteCommand("volume_up")} disabled={controlsDisabled}>Volume +</button>
+                    <button className="ghost" onClick={() => onExecuteCommand("volume_down")} disabled={controlsDisabled}>Volume -</button>
+                  </div>
                 </div>
 
                 <div className="tv-slider-card">
-                  <SliderCommand
-                    label="Channel"
-                    value={controlValues.tvChannel}
-                    min={1}
-                    max={20}
-                    commandPrefix="channel"
-                    controlsDisabled={controlsDisabled}
-                    viewMode={viewMode}
-                    onChange={(value) => updateControlValue("tvChannel", value)}
-                    onExecute={onExecuteCommand}
-                    decreaseLabel="Decrease channel"
-                    increaseLabel="Increase channel"
-                  />
+                  <span className="mini-label">Channel</span>
+                  <div className="control-actions mode-actions">
+                    <button onClick={() => onExecuteCommand("channel_up")} disabled={controlsDisabled}>Channel +</button>
+                    <button className="ghost" onClick={() => onExecuteCommand("channel_down")} disabled={controlsDisabled}>Channel -</button>
+                  </div>
                 </div>
               </div>
             </>
@@ -204,9 +188,12 @@ export function ControlPanel({
           {activeType === "FAN" && (
             <>
               <div className="control-row inline-row">
-                <span>Power</span>
-                <div className="control-actions no-wrap">
+                <span>Fan</span>
+                <div className="control-actions mode-actions">
                   <button onClick={() => onExecuteCommand("power")} disabled={controlsDisabled}>Power</button>
+                  <button onClick={() => onExecuteCommand("turn")} disabled={controlsDisabled}>Turn</button>
+                  <button onClick={() => onExecuteCommand("led")} disabled={controlsDisabled}>Led</button>
+                  <button onClick={() => onExecuteCommand("timer")} disabled={controlsDisabled}>Timer</button>
                 </div>
               </div>
 
@@ -230,11 +217,41 @@ export function ControlPanel({
 
           {activeType === "PROJECTOR" && (
             <div className="control-row inline-row">
-              <span>Power</span>
-              <div className="control-actions no-wrap">
-                <button onClick={() => onExecuteCommand("power")} disabled={controlsDisabled}>Power</button>
+              <span>Projector</span>
+              <div className="control-actions mode-actions">
+                <button onClick={() => onExecuteCommand("power")} disabled={controlsDisabled}>Power On</button>
+                <button className="ghost" onClick={() => onExecuteCommand("power_off")} disabled={controlsDisabled}>Power Off</button>
+                <button onClick={() => onExecuteCommand("ok")} disabled={controlsDisabled}>OK</button>
               </div>
             </div>
+          )}
+
+          {activeType === "LIGHT" && (
+            <>
+              <div className="control-row inline-row">
+                <span>Light</span>
+                <div className="control-actions mode-actions">
+                  <button onClick={() => onExecuteCommand("on")} disabled={controlsDisabled}>On</button>
+                  <button className="ghost" onClick={() => onExecuteCommand("off")} disabled={controlsDisabled}>Off</button>
+                  <button onClick={() => onExecuteCommand("red")} disabled={controlsDisabled}>R</button>
+                  <button onClick={() => onExecuteCommand("green")} disabled={controlsDisabled}>G</button>
+                  <button onClick={() => onExecuteCommand("blue")} disabled={controlsDisabled}>B</button>
+                  <button onClick={() => onExecuteCommand("white")} disabled={controlsDisabled}>W</button>
+                </div>
+              </div>
+
+              <div className="control-row inline-row">
+                <span>Effects</span>
+                <div className="control-actions mode-actions">
+                  <button onClick={() => onExecuteCommand("brightness_up")} disabled={controlsDisabled}>+</button>
+                  <button onClick={() => onExecuteCommand("brightness_down")} disabled={controlsDisabled}>-</button>
+                  <button onClick={() => onExecuteCommand("flash")} disabled={controlsDisabled}>Flash</button>
+                  <button onClick={() => onExecuteCommand("strobe")} disabled={controlsDisabled}>Strobe</button>
+                  <button onClick={() => onExecuteCommand("fade")} disabled={controlsDisabled}>Fade</button>
+                  <button onClick={() => onExecuteCommand("smooth")} disabled={controlsDisabled}>Smooth</button>
+                </div>
+              </div>
+            </>
           )}
         </div>
       )}

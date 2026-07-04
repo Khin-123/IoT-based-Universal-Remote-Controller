@@ -151,6 +151,16 @@ export default function App() {
     return Object.prototype.hasOwnProperty.call(device.commands || {}, commandName);
   }
 
+  function formatIrData(irData) {
+    if (!irData) return "IR: unavailable";
+
+    const protocol = irData.protocol || "UNKNOWN";
+    const value = irData.value ?? 0;
+    const bits = irData.bits ?? 0;
+    const rawCount = Array.isArray(irData.raw) ? irData.raw.length : 0;
+    return `IR: protocol=${protocol}, value=${value}, bits=${bits}, raw=${rawCount}`;
+  }
+
   async function triggerLearn(commandName) {
     if (!user || !activeRemoteId) return;
 
@@ -171,7 +181,7 @@ export default function App() {
       });
 
       setPendingLearnCount((count) => count + 1);
-      addLog(`IR learned: ${deviceName}/${commandName}`);
+      addLog(`IR learned: ${deviceName}/${commandName} | ${formatIrData(payload.irData)}`);
       await loadDevices(token, activeRemoteId, payload.message || "IR learned.");
     });
   }
@@ -196,7 +206,7 @@ export default function App() {
 
       const msg = payload.message || `Command sent: ${activeDevice.deviceName}/${commandName}`;
       setStatus(msg);
-      addLog(`Command sent: ${activeDevice.deviceName}/${commandName}`);
+      addLog(`Command sent: ${activeDevice.deviceName}/${commandName} | ${formatIrData(payload.irData || activeDevice.commands?.[commandName])}`);
     });
   }
 
@@ -752,82 +762,18 @@ export default function App() {
 
                     <div className="control-row tv-sliders-row">
                       <div className="tv-slider-card">
-                        <span className="mini-label">Volume ({controlValues.tvVolume})</span>
-                        <div className="slider-learn-row">
-                          <button
-                            type="button"
-                            className="edge-btn ghost"
-                            onClick={() => setControlValues((prev) => ({ ...prev, tvVolume: Math.max(0, prev.tvVolume - 1) }))}
-                            disabled={controlsDisabled}
-                            aria-label="Decrease volume"
-                          >
-                            -
-                          </button>
-                          <input
-                            type="range"
-                            min={0}
-                            max={10}
-                            step={1}
-                            value={controlValues.tvVolume}
-                            onChange={(e) => setControlValues((prev) => ({ ...prev, tvVolume: Number(e.target.value) }))}
-                            disabled={controlsDisabled}
-                          />
-                          <button
-                            type="button"
-                            className="edge-btn ghost"
-                            onClick={() => setControlValues((prev) => ({ ...prev, tvVolume: Math.min(10, prev.tvVolume + 1) }))}
-                            disabled={controlsDisabled}
-                            aria-label="Increase volume"
-                          >
-                            +
-                          </button>
-                          <button
-                            className="tiny-cta"
-                            onClick={() => executeCommand(`volume_${controlValues.tvVolume}`)}
-                            disabled={controlsDisabled}
-                          >
-                            {viewMode === "send" ? "Send" : "Learn"}
-                          </button>
+                        <span className="mini-label">Volume</span>
+                        <div className="control-actions mode-actions">
+                          <button onClick={() => executeCommand("volume_up")} disabled={controlsDisabled}>Volume +</button>
+                          <button className="ghost" onClick={() => executeCommand("volume_down")} disabled={controlsDisabled}>Volume -</button>
                         </div>
                       </div>
 
                       <div className="tv-slider-card">
-                        <span className="mini-label">Channel ({controlValues.tvChannel})</span>
-                        <div className="slider-learn-row">
-                          <button
-                            type="button"
-                            className="edge-btn ghost"
-                            onClick={() => setControlValues((prev) => ({ ...prev, tvChannel: Math.max(1, prev.tvChannel - 1) }))}
-                            disabled={controlsDisabled}
-                            aria-label="Decrease channel"
-                          >
-                            -
-                          </button>
-                          <input
-                            type="range"
-                            min={1}
-                            max={20}
-                            step={1}
-                            value={controlValues.tvChannel}
-                            onChange={(e) => setControlValues((prev) => ({ ...prev, tvChannel: Number(e.target.value) }))}
-                            disabled={controlsDisabled}
-                          />
-                          <button
-                            type="button"
-                            className="edge-btn ghost"
-                            onClick={() => setControlValues((prev) => ({ ...prev, tvChannel: Math.min(20, prev.tvChannel + 1) }))}
-                            disabled={controlsDisabled}
-                            aria-label="Increase channel"
-                          >
-                            +
-                          </button>
-                          <button
-                            className="tiny-cta"
-                            onClick={() => executeCommand(`channel_${controlValues.tvChannel}`)}
-                            disabled={controlsDisabled}
-                          >
-                            {viewMode === "send" ? "Send" : "Learn"}
-                          </button>
+                        <span className="mini-label">Channel</span>
+                        <div className="control-actions mode-actions">
+                          <button onClick={() => executeCommand("channel_up")} disabled={controlsDisabled}>Channel +</button>
+                          <button className="ghost" onClick={() => executeCommand("channel_down")} disabled={controlsDisabled}>Channel -</button>
                         </div>
                       </div>
                     </div>
@@ -836,9 +782,12 @@ export default function App() {
 
                 {activeType === "FAN" && (
                   <>
-                    <div className="control-row inline-row">
-                      <div className="control-actions no-wrap">
+                    <div className="control-row command-row">
+                      <div className="control-actions mode-actions">
                         <button onClick={() => executeCommand("power")} disabled={controlsDisabled}>Power</button>
+                        <button onClick={() => executeCommand("turn")} disabled={controlsDisabled}>Turn</button>
+                        <button onClick={() => executeCommand("led")} disabled={controlsDisabled}>Led</button>
+                        <button onClick={() => executeCommand("timer")} disabled={controlsDisabled}>Timer</button>
                       </div>
                     </div>
 
@@ -885,11 +834,39 @@ export default function App() {
                 )}
 
                 {activeType === "PROJECTOR" && (
-                  <div className="control-row inline-row">
-                    <div className="control-actions no-wrap">
-                      <button onClick={() => executeCommand("power")} disabled={controlsDisabled}>Power</button>
+                  <div className="control-row command-row">
+                    <div className="control-actions mode-actions">
+                      <button onClick={() => executeCommand("power")} disabled={controlsDisabled}>Power On</button>
+                      <button className="ghost" onClick={() => executeCommand("power_off")} disabled={controlsDisabled}>Power Off</button>
+                      <button onClick={() => executeCommand("ok")} disabled={controlsDisabled}>OK</button>
                     </div>
                   </div>
+                )}
+
+                {activeType === "LIGHT" && (
+                  <>
+                    <div className="control-row command-row">
+                      <div className="control-actions mode-actions">
+                        <button onClick={() => executeCommand("on")} disabled={controlsDisabled}>On</button>
+                        <button className="ghost" onClick={() => executeCommand("off")} disabled={controlsDisabled}>Off</button>
+                        <button onClick={() => executeCommand("red")} disabled={controlsDisabled}>R</button>
+                        <button onClick={() => executeCommand("green")} disabled={controlsDisabled}>G</button>
+                        <button onClick={() => executeCommand("blue")} disabled={controlsDisabled}>B</button>
+                        <button onClick={() => executeCommand("white")} disabled={controlsDisabled}>W</button>
+                      </div>
+                    </div>
+
+                    <div className="control-row command-row">
+                      <div className="control-actions mode-actions">
+                        <button onClick={() => executeCommand("brightness_up")} disabled={controlsDisabled}>+</button>
+                        <button onClick={() => executeCommand("brightness_down")} disabled={controlsDisabled}>-</button>
+                        <button onClick={() => executeCommand("flash")} disabled={controlsDisabled}>Flash</button>
+                        <button onClick={() => executeCommand("strobe")} disabled={controlsDisabled}>Strobe</button>
+                        <button onClick={() => executeCommand("fade")} disabled={controlsDisabled}>Fade</button>
+                        <button onClick={() => executeCommand("smooth")} disabled={controlsDisabled}>Smooth</button>
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
             )}

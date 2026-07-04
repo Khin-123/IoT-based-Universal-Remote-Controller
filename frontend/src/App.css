@@ -291,6 +291,10 @@ p {
   align-items: center;
 }
 
+.control-row.command-row {
+  display: block;
+}
+
 .control-row.combo-row {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -735,8 +739,9 @@ input[type="range"] {
   }
 
   .mode-actions {
-    display: grid;
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
   }
 
   .slider-learn-row {

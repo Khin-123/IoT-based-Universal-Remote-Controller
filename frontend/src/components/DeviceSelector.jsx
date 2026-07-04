@@ -4,6 +4,7 @@ export default function DeviceSelector({ selectedDevice, onChange }) {
     { value: "tv", label: "TV" },
     { value: "fan", label: "Fan" },
     { value: "projector", label: "Projector" },
+    { value: "light", label: "Light" },
   ];
 
   return (

@@ -53,6 +53,7 @@ function inferDeviceType(deviceName) {
   if (upper.startsWith("AC")) return "AC";
   if (upper.startsWith("FAN")) return "FAN";
   if (upper.startsWith("PROJECTOR")) return "PROJECTOR";
+  if (upper.startsWith("LIGHT")) return "LIGHT";
   return "UNKNOWN";
 }
 
@@ -501,6 +502,7 @@ app.post("/api/send", verifyFirebaseToken, async (req, res) => {
       remoteId: remote,
       deviceName,
       commandName,
+      irData,
       esp32: payload,
     });
   } catch (error) {

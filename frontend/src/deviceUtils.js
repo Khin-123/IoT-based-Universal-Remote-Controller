@@ -1,7 +1,7 @@
 // Allow spaces and most symbols, but block "." and "/" to keep Firestore update paths safe.
 const NAME_PATTERN = /^[^./\n\r\t]+$/;
 
-export const DEVICE_TYPE_OPTIONS = ["TV", "AC", "FAN", "PROJECTOR"];
+export const DEVICE_TYPE_OPTIONS = ["TV", "AC", "FAN", "PROJECTOR", "LIGHT"];
 
 export const DEFAULT_CONTROL_VALUES = {
   acTemp: 24,
@@ -21,6 +21,7 @@ export function inferDeviceType(deviceName) {
   if (upper.startsWith("AC")) return "AC";
   if (upper.startsWith("FAN")) return "FAN";
   if (upper.startsWith("PROJECTOR")) return "PROJECTOR";
+  if (upper.startsWith("LIGHT")) return "LIGHT";
   return "UNKNOWN";
 }
 

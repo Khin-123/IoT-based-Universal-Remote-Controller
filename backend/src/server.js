@@ -581,7 +581,7 @@ wss.on("connection", (ws) => {
 httpServer.listen(PORT, () => {
   console.log(`Backend listening on http://localhost:${PORT}`);
   console.log(`WebSocket endpoint: ws://<host>:${PORT}/ws`);
-});
+}); 
 
 
 

@@ -23,7 +23,7 @@ export function inferDeviceType(deviceName) {
   if (upper.startsWith("PROJECTOR")) return "PROJECTOR";
   if (upper.startsWith("LIGHT")) return "LIGHT";
   return "UNKNOWN";
-}
+} 
 
 export function normalizeDeviceType(type, deviceName) {
   const normalized = String(type || "").trim().toUpperCase();

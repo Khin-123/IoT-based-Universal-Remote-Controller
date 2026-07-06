@@ -40,4 +40,4 @@ export async function apiCall(path, { method = "GET", token, body } = {}) {
   }
 
   return payload;
-}
+} 

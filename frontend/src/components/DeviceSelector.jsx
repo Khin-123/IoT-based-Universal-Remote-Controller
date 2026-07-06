@@ -7,7 +7,7 @@ export default function DeviceSelector({ selectedDevice, onChange }) {
     { value: "light", label: "Light" },
   ];
 
-  return (
+  return ( 
     <div className="field">
       <label htmlFor="device">Device</label>
       <select id="device" value={selectedDevice} onChange={(e) => onChange(e.target.value)}>

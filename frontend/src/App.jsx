@@ -6,7 +6,7 @@ import {
   sendEmailVerification,
   signInWithEmailAndPassword,
   signInWithPopup,
-  signOut,
+  signOut, 
 } from "firebase/auth";
 import { auth } from "./firebase";
 import { apiCall } from "./api";

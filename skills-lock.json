@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "control-ui": {
+      "source": "cursor/plugins",
+      "sourceType": "github",
+      "skillPath": "cursor-team-kit/skills/control-ui/SKILL.md",
+      "computedHash": "ba1f012a8c8f5bed87272bdd17d9862fafb028022abeb9ee63d82c09e474b0ff"
+    }
+  }
+}

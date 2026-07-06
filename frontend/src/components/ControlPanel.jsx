@@ -6,7 +6,7 @@ function SliderCommand({
   min,
   max,
   commandPrefix,
-  controlsDisabled,
+  controlsDisabled, 
   viewMode,
   onChange,
   onExecute,

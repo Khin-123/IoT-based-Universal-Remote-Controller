@@ -8,8 +8,8 @@
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>
 
-const char *WIFI_SSID = "HONOR 200";
-const char *WIFI_PASS = "swampyae2005";
+const char *WIFI_SSID = "Xiaomi 15T Pro";
+const char *WIFI_PASS = "d0ntc0nnect";
 
 #define IR_RECV_PIN 14
 #define IR_SEND_PIN 4
@@ -33,8 +33,8 @@ const uint16_t BACKEND_PORT = 443;
 const char *BACKEND_PATH = "/ws";
 const bool BACKEND_SSL = true;
 
-// Local backend settings, for later:
-// const char *BACKEND_HOST = "192.168.99.122";
+// This is for Local.
+// const char *BACKEND_HOST = "10.122.130.58";
 // const uint16_t BACKEND_PORT = 3000;
 // const char *BACKEND_PATH = "/ws";
 // const bool BACKEND_SSL = false;
@@ -91,6 +91,8 @@ decode_type_t protocolFromString(const String &protocol) {
   if (p == "JVC") return JVC;
   if (p == "RC5") return RC5;
   if (p == "RC6") return RC6;
+  if (p == "MITSUBISHI") return MITSUBISHI;
+  if (p == "GOODWEATHER") return GOODWEATHER;
   return UNKNOWN;
 }
 
@@ -118,16 +120,19 @@ bool sendByProtocol(decode_type_t proto, uint64_t value, uint16_t bits) {
       irsend.sendLG(value, bits);
       return true;
     case COOLIX:
-      irsend.sendCOOLIX(value);
+      irsend.sendCOOLIX(value, bits);
       return true;
     case GREE:
       irsend.sendGree(value, bits);
       return true;
     case KELON:
-      irsend.sendKelon(value);
+      irsend.sendKelon(value, bits);
       return true;
     case TECO:
       irsend.sendTeco(value, bits, 2);
+      return true;
+    case GOODWEATHER:
+      irsend.sendGoodweather(value, bits);
       return true;
     default:
       return false;

@@ -11,7 +11,7 @@ import {
 import { auth } from "./firebase";
 import { apiCall } from "./api";
 import { ControlPanel } from "./components/ControlPanel";
-import { DeviceSidebar } from "./components/DeviceSidebar";
+import { AddDevicesPanel, DeviceSidebar, MyDevicesPanel } from "./components/DeviceSidebar";
 import { AuthCard, RemotePicker, VerifyEmailCard } from "./components/SetupPanels";
 import { TerminalPanel } from "./components/TerminalPanel";
 import {
@@ -49,6 +49,11 @@ export default function App() {
 
   const [controlValues, setControlValues] = useState(DEFAULT_CONTROL_VALUES);
   const [logs, setLogs] = useState([]);
+  const [isSmallScreen, setIsSmallScreen] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(max-width: 760px)").matches;
+  });
+  const [mobileTab, setMobileTab] = useState("add");
 
   const sortedDevices = useMemo(
     () => [...devices].sort((a, b) => a.deviceName.localeCompare(b.deviceName)),
@@ -542,6 +547,24 @@ export default function App() {
     return "Device Control";
   }, [viewMode, draftType, activeDevice]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const mediaQuery = window.matchMedia("(max-width: 760px)");
+    const handleChange = () => setIsSmallScreen(mediaQuery.matches);
+
+    handleChange();
+    mediaQuery.addEventListener("change", handleChange);
+
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
+
+  useEffect(() => {
+    if (isSmallScreen && activeRemoteId) {
+      setMobileTab("add");
+    }
+  }, [activeRemoteId, isSmallScreen]);
+
   if (!authReady) {
     return (
       <main className="page">
@@ -606,6 +629,117 @@ export default function App() {
   }
 
   const controlsDisabled = busy || (viewMode !== "add" && !activeDevice);
+  const controlPanelProps = {
+    activeDevice,
+    activeType,
+    busy,
+    canSaveEdit,
+    canSaveNew,
+    controlValues,
+    controlsDisabled,
+    draftDeviceName,
+    draftType,
+    editDeviceName,
+    panelTitle,
+    viewMode,
+    onExecuteCommand: executeCommand,
+    onSaveEdit: handleSaveEdit,
+    onSaveNewDevice: handleSaveNewDevice,
+    setControlValues,
+    setDraftDeviceName,
+    setEditDeviceName,
+  };
+
+  function handleMobileAddDevice(type) {
+    beginAddDevice(type);
+    setMobileTab("control");
+  }
+
+  function handleMobileOpenSend(deviceName) {
+    openDeviceSendMode(deviceName);
+    setMobileTab("control");
+  }
+
+  function handleMobileOpenEdit(deviceName) {
+    openDeviceEditMode(deviceName);
+    setMobileTab("control");
+  }
+
+  function renderMobileContent() {
+    if (mobileTab === "add") {
+      return (
+        <AddDevicesPanel
+          busy={busy}
+          draftType={draftType}
+          viewMode={viewMode}
+          onAddDevice={handleMobileAddDevice}
+        />
+      );
+    }
+
+    if (mobileTab === "devices") {
+      return (
+        <MyDevicesPanel
+          busy={busy}
+          devices={sortedDevices}
+          activeDeviceName={activeDeviceName}
+          onRefresh={handleRefresh}
+          onOpenSend={handleMobileOpenSend}
+          onOpenEdit={handleMobileOpenEdit}
+          onDelete={handleDeleteDevice}
+        />
+      );
+    }
+
+    return <ControlPanel {...controlPanelProps} />;
+  }
+
+  if (isSmallScreen) {
+    return (
+      <main className="page mobile-app-page">
+        <header className="mobile-header glass-card">
+          <div className="brand">
+            <span className="brand-logo" aria-hidden="true" />
+            <strong>Smart IR Remote Hub</strong>
+          </div>
+          <div className="mobile-actions">
+            <button className="ghost" onClick={() => setActiveRemoteId("")} disabled={busy}>Switch Remote</button>
+            <button className="danger" onClick={handleLogout} disabled={busy}>Logout</button>
+          </div>
+        </header>
+
+        <section className="mobile-content-panel">
+          {renderMobileContent()}
+        </section>
+
+        <TerminalPanel logs={logs} status={status} />
+
+        <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
+          <button
+            className={mobileTab === "add" ? "active" : ""}
+            onClick={() => setMobileTab("add")}
+            type="button"
+          >
+            Add Devices
+          </button>
+          <button
+            className={mobileTab === "devices" ? "active" : ""}
+            onClick={() => setMobileTab("devices")}
+            type="button"
+          >
+            My Devices
+          </button>
+          <button
+            className={mobileTab === "control" ? "active" : ""}
+            onClick={() => setMobileTab("control")}
+            type="button"
+          >
+            Device Control Panel
+          </button>
+        </nav>
+      </main>
+    );
+  }
 
   return (
     <main className="page app-page">

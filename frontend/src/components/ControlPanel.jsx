@@ -109,48 +109,90 @@ export function ControlPanel({
 
           {activeType === "AC" && (
             <>
-              <div className="control-row ac-row-2">
+              <div className="control-row ac-top-row">
                 <div className="ac-power">
-                  <span className="mini-label">Power</span>
                   <div className="control-actions no-wrap">
                     <button onClick={() => onExecuteCommand("power_on")} disabled={controlsDisabled}>On</button>
                     <button className="ghost" onClick={() => onExecuteCommand("power_off")} disabled={controlsDisabled}>Off</button>
                   </div>
                 </div>
 
-                <div className="ac-temp">
-                  <SliderCommand
-                    label="Temp"
-                    value={controlValues.acTemp}
-                    min={17}
-                    max={25}
-                    commandPrefix="temp"
-                    controlsDisabled={controlsDisabled}
-                    viewMode={viewMode}
-                    onChange={(value) => updateControlValue("acTemp", value)}
-                    onExecute={onExecuteCommand}
-                    decreaseLabel="Decrease temperature"
-                    increaseLabel="Increase temperature"
-                  />
-                </div>
-              </div>
-
-              <div className="control-row inline-row">
-                <span>Mode</span>
-                <div className="control-actions mode-actions">
-                  {["cooling", "fan", "heating"].map((mode) => (
+                <div className="ac-mode">
+                  <span className="mini-label-acmode">Mode</span>
+                  <div className="control-actions mode-actions">
                     <button
-                      key={mode}
-                      className={controlValues.acMode === mode ? "active-choice" : ""}
+                      className={controlValues.acMode === "cooling" ? "active-choice" : ""}
                       onClick={async () => {
-                        updateControlValue("acMode", mode);
-                        await onExecuteCommand(`mode_${mode}`);
+                        updateControlValue("acMode", "cooling");
+                        await onExecuteCommand("mode_cooling");
                       }}
                       disabled={controlsDisabled}
                     >
-                      {mode[0].toUpperCase() + mode.slice(1)}
+                      Cooling
                     </button>
-                  ))}
+                    <button
+                      className={controlValues.acMode === "fan" ? "active-choice" : ""}
+                      onClick={async () => {
+                        updateControlValue("acMode", "fan");
+                        await onExecuteCommand("mode_fan");
+                      }}
+                      disabled={controlsDisabled}
+                    >
+                      Fan
+                    </button>
+                    <button
+                      className={controlValues.acMode === "heating" ? "active-choice" : ""}
+                      onClick={async () => {
+                        updateControlValue("acMode", "heating");
+                        await onExecuteCommand("mode_heating");
+                      }}
+                      disabled={controlsDisabled}
+                    >
+                      Heating
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="control-row">
+                <div className="ac-temp">
+                  <span className="mini-label">Temp ({controlValues.acTemp}Â°C)</span>
+                  <div className="slider-learn-row">
+                    <button
+                      type="button"
+                      className="edge-btn ghost"
+                      onClick={() => updateControlValue("acTemp", Math.max(17, controlValues.acTemp - 1))}
+                      disabled={controlsDisabled}
+                      aria-label="Decrease temperature"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="range"
+                      min={17}
+                      max={25}
+                      step={1}
+                      value={controlValues.acTemp}
+                      onChange={(e) => updateControlValue("acTemp", Number(e.target.value))}
+                      disabled={controlsDisabled}
+                    />
+                    <button
+                      type="button"
+                      className="edge-btn ghost"
+                      onClick={() => updateControlValue("acTemp", Math.min(25, controlValues.acTemp + 1))}
+                      disabled={controlsDisabled}
+                      aria-label="Increase temperature"
+                    >
+                      +
+                    </button>
+                    <button
+                      className="tiny-cta"
+                      onClick={() => onExecuteCommand(`temp_${controlValues.acTemp}`)}
+                      disabled={controlsDisabled}
+                    >
+                      {viewMode === "send" ? "Send" : "Learn"}
+                    </button>
+                  </div>
                 </div>
               </div>
             </>
@@ -159,7 +201,6 @@ export function ControlPanel({
           {activeType === "TV" && (
             <>
               <div className="control-row inline-row">
-                <span>Power</span>
                 <div className="control-actions no-wrap">
                   <button onClick={() => onExecuteCommand("power")} disabled={controlsDisabled}>Power</button>
                 </div>
@@ -187,8 +228,7 @@ export function ControlPanel({
 
           {activeType === "FAN" && (
             <>
-              <div className="control-row inline-row">
-                <span>Fan</span>
+              <div className="control-row command-row">
                 <div className="control-actions mode-actions">
                   <button onClick={() => onExecuteCommand("power")} disabled={controlsDisabled}>Power</button>
                   <button onClick={() => onExecuteCommand("turn")} disabled={controlsDisabled}>Turn</button>
@@ -216,8 +256,7 @@ export function ControlPanel({
           )}
 
           {activeType === "PROJECTOR" && (
-            <div className="control-row inline-row">
-              <span>Projector</span>
+            <div className="control-row command-row">
               <div className="control-actions mode-actions">
                 <button onClick={() => onExecuteCommand("power")} disabled={controlsDisabled}>Power On</button>
                 <button className="ghost" onClick={() => onExecuteCommand("power_off")} disabled={controlsDisabled}>Power Off</button>
@@ -228,8 +267,7 @@ export function ControlPanel({
 
           {activeType === "LIGHT" && (
             <>
-              <div className="control-row inline-row">
-                <span>Light</span>
+              <div className="control-row command-row">
                 <div className="control-actions mode-actions">
                   <button onClick={() => onExecuteCommand("on")} disabled={controlsDisabled}>On</button>
                   <button className="ghost" onClick={() => onExecuteCommand("off")} disabled={controlsDisabled}>Off</button>
@@ -240,8 +278,7 @@ export function ControlPanel({
                 </div>
               </div>
 
-              <div className="control-row inline-row">
-                <span>Effects</span>
+              <div className="control-row command-row">
                 <div className="control-actions mode-actions">
                   <button onClick={() => onExecuteCommand("brightness_up")} disabled={controlsDisabled}>+</button>
                   <button onClick={() => onExecuteCommand("brightness_down")} disabled={controlsDisabled}>-</button>

@@ -908,13 +908,19 @@ input[type="range"] {
 }
 
 @media (max-width: 760px) {
+  html,
+  body,
+  #root {
+    overflow: hidden;
+  }
+
   .mobile-app-page {
     height: 100vh;
     height: 100dvh;
     min-height: 0;
     padding: 8px;
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr) clamp(126px, 24dvh, 178px) auto;
+    grid-template-rows: auto minmax(0, 1fr) clamp(104px, 20dvh, 150px) auto;
     gap: 8px;
     overflow: hidden;
   }
@@ -961,18 +967,39 @@ input[type="range"] {
     padding: 10px;
   }
 
+  .mobile-content-panel .type-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .mobile-content-panel > .device-list-section {
     grid-template-rows: auto minmax(0, 1fr);
   }
 
   .mobile-content-panel .device-list,
-  .mobile-content-panel .controls-area {
+  .mobile-app-page .terminal-body {
     min-height: 0;
     overflow-y: auto;
   }
 
+  .mobile-content-panel .controls-area {
+    min-height: 0;
+    overflow-y: auto;
+    gap: 5px;
+  }
+
   .mobile-content-panel .control-card {
     padding: 10px;
+    gap: 8px;
+  }
+
+  .mobile-content-panel .control-head {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .mobile-content-panel .control-head h2 {
+    font-size: 1.05rem;
+    line-height: 1.15;
   }
 
   .mobile-app-page .terminal-card {
@@ -986,6 +1013,51 @@ input[type="range"] {
     min-height: 0;
     max-height: none;
     overflow-y: auto;
+  }
+
+  .mobile-content-panel .control-row {
+    padding: 5px;
+    gap: 5px;
+  }
+
+  .mobile-content-panel .control-actions {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .mobile-content-panel .control-actions.no-wrap {
+    flex-wrap: nowrap;
+  }
+
+  .mobile-content-panel .ac-power .control-actions.no-wrap {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .mobile-content-panel .ac-power .control-actions.no-wrap button {
+    width: 100%;
+  }
+
+  .mobile-content-panel .slider-learn-row {
+    grid-template-columns: 30px minmax(0, 1fr) 30px;
+    gap: 6px;
+  }
+
+  .mobile-content-panel .slider-learn-row input[type="range"] {
+    grid-column: auto;
+    order: 0;
+  }
+
+  .mobile-content-panel .slider-learn-row .tiny-cta {
+    grid-column: 2;
+    justify-self: center;
+    width: min(120px, 100%);
+    margin-left: 0;
+  }
+
+  .mobile-content-panel .edge-btn {
+    width: 30px;
   }
 
   .mobile-bottom-nav {
@@ -1015,9 +1087,63 @@ input[type="range"] {
   }
 }
 
+@media (max-width: 760px) and (max-height: 650px) {
+  .mobile-app-page {
+    grid-template-rows: auto minmax(0, 1fr) clamp(82px, 17dvh, 112px) auto;
+    gap: 6px;
+    padding: 6px;
+  }
+
+  .mobile-header {
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .mobile-header .brand {
+    font-size: 0.88rem;
+  }
+
+  .brand-logo {
+    width: 24px;
+    height: 24px;
+  }
+
+  .mobile-content-panel .control-card,
+  .mobile-content-panel > .left-section {
+    padding: 8px;
+  }
+
+  .mobile-content-panel .control-card,
+  .mobile-content-panel .controls-area {
+    gap: 4px;
+  }
+
+  .mobile-content-panel .control-row,
+  .ac-power,
+  .ac-mode,
+  .ac-temp,
+  .tv-slider-card {
+    padding: 4px;
+    gap: 4px;
+  }
+
+  .mobile-bottom-nav {
+    padding: 5px;
+  }
+
+  .mobile-bottom-nav button {
+    height: 36px;
+  }
+
+  .terminal-head {
+    padding-top: 5px;
+    padding-bottom: 5px;
+  }
+}
+
 @media (max-width: 420px) {
   .mobile-app-page {
-    grid-template-rows: auto minmax(0, 1fr) clamp(116px, 22dvh, 156px) auto;
+    grid-template-rows: auto minmax(0, 1fr) clamp(92px, 18dvh, 132px) auto;
     gap: 7px;
   }
 

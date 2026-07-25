@@ -142,6 +142,17 @@ function sendToEspAwait(espId, payload, { timeoutMs = 20000 } = {}) {
   });
 }
 
+function acknowledgeLearnResult(ws, requestId) {
+  if (!requestId || ws.readyState !== ws.OPEN) return;
+
+  ws.send(JSON.stringify({
+    type: "learn_result_ack",
+    requestId,
+    success: true,
+    receivedAt: Date.now(),
+  }));
+}
+
 app.get("/health", (_, res) => {
   res.json({ success: true, message: "Backend is running." });
 });
@@ -569,6 +580,10 @@ wss.on("connection", (ws) => {
         return;
       }
 
+      if (payload?.type === "learn_result") {
+        acknowledgeLearnResult(ws, requestId);
+      }
+
       clearTimeout(pending.timeout);
       pendingRequests.delete(requestId);
 
@@ -579,6 +594,10 @@ wss.on("connection", (ws) => {
 
       pending.resolve(payload);
       return;
+    }
+
+    if (requestId && type === "learn_result") {
+      acknowledgeLearnResult(ws, requestId);
     }
   });
 

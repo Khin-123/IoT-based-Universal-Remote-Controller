@@ -51,7 +51,8 @@ bool sendIrCommand(const String &protocol, uint64_t value, uint16_t bits, const 
 enum SystemState {
   IDLE,
   LEARNING,
-  SENDING
+  SENDING,
+  WAITING_LEARN_ACK
 };
 
 SystemState currentSystemState = IDLE;
@@ -60,12 +61,19 @@ unsigned long currentOperationStartMs = 0;
 uint32_t currentOperationTimeoutMs = 0;
 String pendingSendPayload = "";
 
+constexpr uint32_t LEARN_ACK_TIMEOUT_MS = 10000;
+
+unsigned long learnAckWaitStartMs = 0;
+uint32_t learnCaptureTimeMs = 0;
+
 void clearCurrentOperation() {
   currentSystemState = IDLE;
   currentRequestId = "";
   currentOperationStartMs = 0;
   currentOperationTimeoutMs = 0;
   pendingSendPayload = "";
+  learnAckWaitStartMs = 0;
+  learnCaptureTimeMs = 0;
 }
 
 bool startLearning(const String &requestId, uint32_t timeoutMs) {
@@ -91,16 +99,30 @@ bool startLearning(const String &requestId, uint32_t timeoutMs) {
 
 void finishLearning(bool success, const String &payloadJson, const String &message) {
   String response;
+
+  // Time until the IR signal was captured and converted.
+  uint32_t captureElapsedMs =
+      millis() - currentOperationStartMs;
+
+  if (message.length() > 0) {
+    Serial.println(message);
+    Serial.flush();
+  }
+
+  // uint32_t learningElapsedMs = millis() - currentOperationStartMs;
+
   if (success) {
     DynamicJsonDocument doc(32768);
     DeserializationError error = deserializeJson(doc, payloadJson);
     if (!error) {
       doc["type"] = "learn_result";
       doc["requestId"] = currentRequestId;
-      doc["learningTime"] = millis() - currentOperationStartMs;
+
+      doc["learningTime"] = captureElapsedMs;
       doc["message"] = message;
       serializeJson(doc, response);
     } else {
+      success = false;
       response = "{";
       response += "\"type\":\"learn_result\",";
       response += "\"requestId\":\"" + escapeJson(currentRequestId) + "\",";
@@ -118,7 +140,18 @@ void finishLearning(bool success, const String &payloadJson, const String &messa
   }
 
   wsSendJson(response);
-  Serial.printf("[TIMING] Total Learning Time: %lums\n", millis() - currentOperationStartMs);
+  if (success) {
+    // Do not clear the operation yet.
+    // Wait until the backend confirms it received the result.
+    learnCaptureTimeMs = captureElapsedMs;
+    learnAckWaitStartMs = millis();
+    currentSystemState = WAITING_LEARN_ACK;
+    return;
+  }
+
+  Serial.printf(
+      "[TIMING] Learning Failed After: %lums\n",
+      captureElapsedMs);
   clearCurrentOperation();
 }
 
@@ -158,6 +191,34 @@ void finishSending(bool success, const String &message) {
 }
 
 void processLearning() {
+
+  if (currentSystemState == WAITING_LEARN_ACK) {
+    if (
+        millis() - learnAckWaitStartMs >=
+        LEARN_ACK_TIMEOUT_MS
+    ) {
+      uint32_t totalLearningTimeMs =
+          millis() - currentOperationStartMs;
+
+      Serial.println(
+          "[WS] Backend did not acknowledge "
+          "the learning result.");
+
+      Serial.printf(
+          "[TIMING] IR Capture Time: %lums\n",
+          learnCaptureTimeMs);
+
+      Serial.printf(
+          "[TIMING] Total Learning Time "
+          "(ACK timeout): %lums\n",
+          totalLearningTimeMs);
+
+      clearCurrentOperation();
+    }
+
+    return;
+  }
+
   if (currentSystemState != LEARNING) {
     return;
   }
@@ -553,6 +614,29 @@ void onWsEvent(WStype_t type, uint8_t *payload, size_t length) {
 
       String msgType = doc["type"] | "";
       String requestId = doc["requestId"] | "";
+
+      if (msgType == "learn_result_ack") {
+        if (
+            currentSystemState == WAITING_LEARN_ACK &&
+            requestId == currentRequestId
+        ) {
+          uint32_t totalLearningTimeMs =
+              millis() - currentOperationStartMs;
+
+          Serial.printf(
+              "[TIMING] IR Capture Time: %lums\n",
+              learnCaptureTimeMs);
+
+          Serial.printf(
+              "[TIMING] Total Learning Time "
+              "(backend confirmed): %lums\n",
+              totalLearningTimeMs);
+
+          clearCurrentOperation();
+        }
+
+        return;
+      }
 
       if (msgType == "send") {
         if (requestId.length() == 0) {

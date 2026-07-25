@@ -43,6 +43,202 @@ String ESP_ID = "";
 unsigned long lastWsReconnectAttemptMs = 0;
 bool wsInitialized = false;
 
+String escapeJson(String s);
+void wsSendJson(const String &json);
+
+enum SystemState {
+  IDLE,
+  LEARNING,
+  SENDING
+};
+
+SystemState currentSystemState = IDLE;
+String currentRequestId = "";
+unsigned long currentOperationStartMs = 0;
+uint32_t currentOperationTimeoutMs = 0;
+String pendingSendPayload = "";
+
+void clearCurrentOperation() {
+  currentSystemState = IDLE;
+  currentRequestId = "";
+  currentOperationStartMs = 0;
+  currentOperationTimeoutMs = 0;
+  pendingSendPayload = "";
+}
+
+bool startLearning(const String &requestId, uint32_t timeoutMs) {
+  if (currentSystemState != IDLE) {
+    return false;
+  }
+
+  currentSystemState = LEARNING;
+  currentRequestId = requestId;
+  currentOperationStartMs = millis();
+  currentOperationTimeoutMs = timeoutMs;
+  pendingSendPayload = "";
+
+  String msg = "{";
+  msg += "\"type\":\"learn_started\",";
+  msg += "\"requestId\":\"" + escapeJson(requestId) + "\",";
+  msg += "\"success\":true,";
+  msg += "\"startedAt\":" + String(millis()) + "";
+  msg += "}";
+  wsSendJson(msg);
+  return true;
+}
+
+void finishLearning(bool success, const String &payloadJson, const String &message) {
+  String response;
+  if (success) {
+    DynamicJsonDocument doc(32768);
+    DeserializationError error = deserializeJson(doc, payloadJson);
+    if (!error) {
+      doc["type"] = "learn_result";
+      doc["requestId"] = currentRequestId;
+      doc["learningTime"] = millis() - currentOperationStartMs;
+      doc["message"] = message;
+      serializeJson(doc, response);
+    } else {
+      response = "{";
+      response += "\"type\":\"learn_result\",";
+      response += "\"requestId\":\"" + escapeJson(currentRequestId) + "\",";
+      response += "\"success\":false,";
+      response += "\"message\":\"Invalid learn payload\"";
+      response += "}";
+    }
+  } else {
+    response = "{";
+    response += "\"type\":\"learn_result\",";
+    response += "\"requestId\":\"" + escapeJson(currentRequestId) + "\",";
+    response += "\"success\":false,";
+    response += "\"message\":\"" + escapeJson(message) + "\"";
+    response += "}";
+  }
+
+  wsSendJson(response);
+  Serial.printf("[TIMING] Total Learning Time: %lums\n", millis() - currentOperationStartMs);
+  clearCurrentOperation();
+}
+
+bool startSending(const String &requestId, const String &payloadJson) {
+  if (currentSystemState != IDLE) {
+    return false;
+  }
+
+  currentSystemState = SENDING;
+  currentRequestId = requestId;
+  currentOperationStartMs = millis();
+  currentOperationTimeoutMs = 0;
+  pendingSendPayload = payloadJson;
+
+  String msg = "{";
+  msg += "\"type\":\"send_started\",";
+  msg += "\"requestId\":\"" + escapeJson(requestId) + "\",";
+  msg += "\"success\":true,";
+  msg += "\"startedAt\":" + String(millis()) + "";
+  msg += "}";
+  wsSendJson(msg);
+  return true;
+}
+
+void finishSending(bool success, const String &message) {
+  String response = "{";
+  response += "\"type\":\"send_result\",";
+  response += "\"requestId\":\"" + escapeJson(currentRequestId) + "\",";
+  response += "\"success\":" + String(success ? "true" : "false") + ",";
+  response += "\"message\":\"" + escapeJson(message) + "\",";
+  response += "\"sendTime\":" + String(millis() - currentOperationStartMs) + "";
+  response += "}";
+
+  wsSendJson(response);
+  Serial.printf("[TIMING] Total Send Time: %lums\n", millis() - currentOperationStartMs);
+  clearCurrentOperation();
+}
+
+void processLearning() {
+  if (currentSystemState != LEARNING) {
+    return;
+  }
+
+  if (millis() - currentOperationStartMs >= currentOperationTimeoutMs) {
+    finishLearning(false, "", "Timeout waiting for IR signal.");
+    return;
+  }
+
+  if (irrecv.decode(&results)) {
+    if (results.repeat || results.overflow) {
+      irrecv.resume();
+      return;
+    }
+
+    String body;
+    bool built = buildLearnResponse(results, body);
+    irrecv.resume();
+
+    if (!built) {
+      finishLearning(false, "", "IR captured but could not convert.");
+      return;
+    }
+
+    finishLearning(true, body, "IR signal learned.");
+  }
+}
+
+void processSending() {
+  if (currentSystemState != SENDING) {
+    return;
+  }
+
+  if (pendingSendPayload.length() == 0) {
+    finishSending(false, "No IR payload was provided.");
+    return;
+  }
+
+  DynamicJsonDocument doc(32768);
+  DeserializationError error = deserializeJson(doc, pendingSendPayload);
+  if (error) {
+    finishSending(false, "Invalid send payload.");
+    return;
+  }
+
+  String protocol = doc["protocol"] | "";
+  uint64_t value = doc["value"] | 0;
+  uint16_t bits = doc["bits"] | 0;
+  JsonArray raw = doc["raw"].as<JsonArray>();
+  size_t rawLen = raw.size();
+
+  uint16_t *rawBuffer = nullptr;
+  if (rawLen > 0) {
+    if (rawLen > RAW_MAX_SAMPLES) {
+      finishSending(false, "Raw sample array is too long.");
+      return;
+    }
+
+    rawBuffer = (uint16_t *)malloc(rawLen * sizeof(uint16_t));
+    if (!rawBuffer) {
+      finishSending(false, "Failed to allocate raw buffer.");
+      return;
+    }
+
+    size_t i = 0;
+    for (JsonVariant v : raw) {
+      rawBuffer[i++] = (uint16_t)(v.as<uint32_t>());
+    }
+  }
+
+  bool sent = sendIrCommand(protocol, value, bits, rawBuffer, rawLen);
+  if (rawBuffer) {
+    free(rawBuffer);
+  }
+
+  if (!sent) {
+    finishSending(false, "Could not send IR. Provide valid raw or protocol/value/bits.");
+    return;
+  }
+
+  finishSending(true, "IR signal sent.");
+}
+
 void logHeap(const char *tag) {
   Serial.printf(
       "[HEAP] %s free=%u min=%u maxAlloc=%u\n",
@@ -93,6 +289,11 @@ decode_type_t protocolFromString(const String &protocol) {
   if (p == "RC6") return RC6;
   if (p == "MITSUBISHI") return MITSUBISHI;
   if (p == "GOODWEATHER") return GOODWEATHER;
+  if (p == "SHARP") return SHARP;
+  if (p == "FUJITSU_AC") return FUJITSU_AC;
+  if (p == "HAIER_AC") return HAIER_AC;
+  if (p == "HITACHI_AC") return HITACHI_AC;
+  if (p == "TOSHIBA_AC") return TOSHIBA_AC;
   return UNKNOWN;
 }
 
@@ -134,9 +335,35 @@ bool sendByProtocol(decode_type_t proto, uint64_t value, uint16_t bits) {
     case GOODWEATHER:
       irsend.sendGoodweather(value, bits);
       return true;
+    case SHARP:
+      irsend.sendSharp(value, bits);
+      return true;
+    case DENON:
+      irsend.sendDenon(value, bits);
+      return true;
+    case MITSUBISHI: 
+      irsend.sendMitsubishi(value, bits);
+      return true;
     default:
       return false;
   }
+}
+
+bool sendIrCommand(const String &protocol, uint64_t value, uint16_t bits, const uint16_t *rawBuffer, size_t rawLen) {
+  unsigned long transmitStartMs = millis();
+  bool sent = false;
+
+  if (rawLen > 0 && rawBuffer != nullptr) {
+    irsend.sendRaw(rawBuffer, rawLen, IR_SEND_FREQUENCY_KHZ);
+    sent = true;
+  } else {
+    decode_type_t proto = protocolFromString(protocol);
+    sent = sendByProtocol(proto, value, bits);
+  }
+
+  unsigned long transmitElapsedMs = millis() - transmitStartMs;
+  Serial.printf("[TIMING] IR Transmission Time: %lums\n", transmitElapsedMs);
+  return sent;
 }
 
 bool buildLearnResponse(decode_results &decoded, String &responseBody) {
@@ -196,46 +423,12 @@ bool sendIrFromJson(JsonVariant ir) {
     for (JsonVariant v : raw) {
       rawBuffer[i++] = (uint16_t)(v.as<uint32_t>());
     }
-    irsend.sendRaw(rawBuffer, rawLen, IR_SEND_FREQUENCY_KHZ);
+    bool sent = sendIrCommand(protocol, value, bits, rawBuffer, rawLen);
     free(rawBuffer);
-    return true;
+    return sent;
   }
 
-  decode_type_t proto = protocolFromString(protocol);
-  return sendByProtocol(proto, value, bits);
-}
-
-String runLearnOnce(uint32_t timeoutMs, bool &ok) {
-  ok = false;
-  unsigned long startedAt = millis();
-
-  while (millis() - startedAt < timeoutMs) {
-    ws.loop(); // keep ws alive during long learn
-    if (irrecv.decode(&results)) {
-      if (results.repeat || results.overflow) {
-        irrecv.resume();
-        delay(10);
-        continue;
-      }
-
-      String body;
-      bool built = buildLearnResponse(results, body);
-      irrecv.resume();
-
-      if (!built) {
-        ok = false;
-        return "{\"success\":false,\"message\":\"IR captured but could not convert.\"}";
-      }
-
-      ok = true;
-      return body;
-    }
-
-    delay(10);
-  }
-
-  ok = false;
-  return "{\"success\":false,\"message\":\"Timeout waiting for IR signal.\"}";
+  return sendIrCommand(protocol, value, bits, nullptr, 0);
 }
 
 void handleHealth() {
@@ -255,13 +448,19 @@ void handleLearn() {
     }
   }
 
-  bool ok = false;
-  String response = runLearnOnce(timeoutMs, ok);
-  if (!ok) {
-    sendError(response.indexOf("Timeout") >= 0 ? 408 : 422, "Learn failed.");
+  String requestId = server.hasArg("requestId") ? server.arg("requestId") : "http-" + String(millis());
+  bool started = startLearning(requestId, timeoutMs);
+  if (!started) {
+    sendError(409, "ESP is busy with another operation.");
     return;
   }
-  server.send(200, "application/json", response);
+
+  String response = "{";
+  response += "\"success\":true,";
+  response += "\"message\":\"Learn started.\",";
+  response += "\"requestId\":\"" + escapeJson(requestId) + "\"";
+  response += "}";
+  server.send(202, "application/json", response);
 }
 
 void handleSend() {
@@ -278,50 +477,26 @@ void handleSend() {
     return;
   }
 
-  String protocol = doc["protocol"] | "";
-  uint64_t value = doc["value"] | 0;
-  uint16_t bits = doc["bits"] | 0;
-
-  JsonArray raw = doc["raw"].as<JsonArray>();
-  size_t rawLen = raw.size();
-
-  bool sent = false;
-
-  if (rawLen > 0) {
-    if (rawLen > RAW_MAX_SAMPLES) {
-      sendError(400, "Raw sample array is too long.");
-      return;
-    }
-
-    uint16_t *rawBuffer = (uint16_t *)malloc(rawLen * sizeof(uint16_t));
-    if (!rawBuffer) {
-      sendError(500, "Failed to allocate raw buffer.");
-      return;
-    }
-
-    size_t i = 0;
-    for (JsonVariant v : raw) {
-      rawBuffer[i++] = (uint16_t)(v.as<uint32_t>());
-    }
-
-    irsend.sendRaw(rawBuffer, rawLen, IR_SEND_FREQUENCY_KHZ);
-    free(rawBuffer);
-    sent = true;
+  String requestId = server.hasArg("requestId") ? server.arg("requestId") : "http-" + String(millis());
+  String payloadJson;
+  if (doc.containsKey("irData")) {
+    serializeJson(doc["irData"], payloadJson);
   } else {
-    decode_type_t proto = protocolFromString(protocol);
-    sent = sendByProtocol(proto, value, bits);
+    payloadJson = body;
   }
 
-  if (!sent) {
-    sendError(400, "Could not send IR. Provide valid raw or protocol/value/bits.");
+  bool started = startSending(requestId, payloadJson);
+  if (!started) {
+    sendError(409, "ESP is busy with another operation.");
     return;
   }
 
   String response = "{";
   response += "\"success\":true,";
-  response += "\"message\":\"IR signal sent.\"";
+  response += "\"message\":\"Send started.\",";
+  response += "\"requestId\":\"" + escapeJson(requestId) + "\"";
   response += "}";
-  server.send(200, "application/json", response);
+  server.send(202, "application/json", response);
 }
 
 void connectWiFi() {
@@ -378,43 +553,48 @@ void onWsEvent(WStype_t type, uint8_t *payload, size_t length) {
       String requestId = doc["requestId"] | "";
 
       if (msgType == "send") {
-        bool ok = false;
-        if (doc.containsKey("irData")) {
-          ok = sendIrFromJson(doc["irData"]);
+        if (requestId.length() == 0) {
+          requestId = "ws-send-" + String(millis());
         }
-        String resp = "{";
-        resp += "\"type\":\"send_result\",";
-        resp += "\"requestId\":\"" + escapeJson(requestId) + "\",";
-        resp += "\"success\":" + String(ok ? "true" : "false") + ",";
-        resp += "\"message\":\"" + escapeJson(ok ? "IR signal sent." : "Failed to send IR.") + "\"";
-        resp += "}";
-        wsSendJson(resp);
+
+        String payloadJson = "";
+        if (doc.containsKey("irData")) {
+          serializeJson(doc["irData"], payloadJson);
+        } else {
+          payloadJson = text;
+        }
+
+        bool started = startSending(requestId, payloadJson);
+        if (!started) {
+          String resp = "{";
+          resp += "\"type\":\"send_result\",";
+          resp += "\"requestId\":\"" + escapeJson(requestId) + "\",";
+          resp += "\"success\":false,";
+          resp += "\"message\":\"ESP is busy with another operation.\"";
+          resp += "}";
+          wsSendJson(resp);
+        }
         return;
       }
 
       if (msgType == "learn") {
+        if (requestId.length() == 0) {
+          requestId = "ws-learn-" + String(millis());
+        }
+
         uint32_t timeoutMs = doc["timeoutMs"] | LEARN_TIMEOUT_MS_DEFAULT;
         if (timeoutMs > LEARN_TIMEOUT_MS_MAX) timeoutMs = LEARN_TIMEOUT_MS_MAX;
-        bool ok = false;
-        String learned = runLearnOnce(timeoutMs, ok);
-        DynamicJsonDocument out(32768);
-        DeserializationError outErr = deserializeJson(out, learned);
-        if (outErr) {
+
+        bool started = startLearning(requestId, timeoutMs);
+        if (!started) {
           String resp = "{";
           resp += "\"type\":\"learn_result\",";
           resp += "\"requestId\":\"" + escapeJson(requestId) + "\",";
           resp += "\"success\":false,";
-          resp += "\"message\":\"Invalid learn payload.\"";
+          resp += "\"message\":\"ESP is busy with another operation.\"";
           resp += "}";
           wsSendJson(resp);
-          return;
         }
-
-        out["type"] = "learn_result";
-        out["requestId"] = requestId;
-        String resp;
-        serializeJson(out, resp);
-        wsSendJson(resp);
         return;
       }
       break;
@@ -471,5 +651,7 @@ void loop() {
   connectWsIfNeeded();
   ws.loop();
   server.handleClient();
+  processLearning();
+  processSending();
 }
 

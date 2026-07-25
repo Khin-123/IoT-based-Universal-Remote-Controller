@@ -110,7 +110,7 @@ function newRequestId() {
 }
 
 const espSockets = new Map(); // espId -> WebSocket
-const pendingRequests = new Map(); // requestId -> { resolve, reject, timeout }
+const pendingRequests = new Map(); // requestId -> { resolve, reject, timeout, startedAt, timingLabel }
 
 function sendToEsp(espId, payload) {
   const ws = espSockets.get(espId);
@@ -123,6 +123,7 @@ function sendToEsp(espId, payload) {
 function sendToEspAwait(espId, payload, { timeoutMs = 20000 } = {}) {
   const requestId = payload.requestId || newRequestId();
   const withId = { ...payload, requestId };
+  const timingLabel = payload.type === "learn" ? "Learning" : payload.type === "send" ? "Send" : "Operation";
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -130,7 +131,7 @@ function sendToEspAwait(espId, payload, { timeoutMs = 20000 } = {}) {
       reject(makeHttpError(504, "ESP response timed out."));
     }, timeoutMs);
 
-    pendingRequests.set(requestId, { resolve, reject, timeout });
+    pendingRequests.set(requestId, { resolve, reject, timeout, startedAt: Date.now(), timingLabel });
     try {
       sendToEsp(espId, withId);
     } catch (error) {
@@ -564,8 +565,18 @@ wss.on("connection", (ws) => {
     const requestId = payload?.requestId ? String(payload.requestId) : "";
     if (requestId && pendingRequests.has(requestId)) {
       const pending = pendingRequests.get(requestId);
+      if (payload?.type === "learn_started" || payload?.type === "send_started") {
+        return;
+      }
+
       clearTimeout(pending.timeout);
       pendingRequests.delete(requestId);
+
+      if (payload?.type === "learn_result" || payload?.type === "send_result") {
+        const elapsedMs = Date.now() - pending.startedAt;
+        console.log(`[TIMING] Total ${pending.timingLabel} Time: ${elapsedMs} ms`);
+      }
+
       pending.resolve(payload);
       return;
     }

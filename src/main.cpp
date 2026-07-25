@@ -45,6 +45,8 @@ bool wsInitialized = false;
 
 String escapeJson(String s);
 void wsSendJson(const String &json);
+bool buildLearnResponse(decode_results &decoded, String &responseBody);
+bool sendIrCommand(const String &protocol, uint64_t value, uint16_t bits, const uint16_t *rawBuffer, size_t rawLen);
 
 enum SystemState {
   IDLE,
@@ -232,7 +234,7 @@ void processSending() {
   }
 
   if (!sent) {
-    finishSending(false, "Could not send IR. Provide valid raw or protocol/value/bits.");
+    finishSending(false, "Could not send IR signal."); 
     return;
   }
 
@@ -607,7 +609,6 @@ void onWsEvent(WStype_t type, uint8_t *payload, size_t length) {
 void connectWsIfNeeded() {
   if (WiFi.status() != WL_CONNECTED) return;
 
-  // Start the websocket client once, then let the library handle reconnects.
   if (wsInitialized) return;
   if (millis() - lastWsReconnectAttemptMs < 2000) return;
   lastWsReconnectAttemptMs = millis();
@@ -654,4 +655,3 @@ void loop() {
   processLearning();
   processSending();
 }
-

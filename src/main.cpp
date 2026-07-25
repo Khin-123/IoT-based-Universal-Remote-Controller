@@ -396,10 +396,10 @@ bool sendByProtocol(decode_type_t proto, uint64_t value, uint16_t bits) {
       irsend.sendTeco(value, bits, 2);
       return true;
     case GOODWEATHER:
-      irsend.sendGoodweather(value, bits);
+      irsend.sendGoodweather(value, bits, 2);
       return true;
     case SHARP:
-      irsend.sendSharp(value, bits);
+      irsend.sendSharp(value, bits, 2);
       return true;
     case DENON:
       irsend.sendDenon(value, bits);

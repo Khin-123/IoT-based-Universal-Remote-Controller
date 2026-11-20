@@ -1,13 +1,23 @@
-.pio
+# PlatformIO build output and local state
+.pio/
+.pio-core/
+
+# Generated VS Code files
 .vscode/.browse.c_cpp.db*
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
 
-backend/node_modules
-frontend/node_modules
-frontend/dist
+# JavaScript dependencies, build output, and Vite caches
+node_modules/
+frontend/dist/
+.vite/
+
+# Local environment files and credentials
 .env
-backend/.env
-frontend/.env
+.env.*
+!.env.example
 backend/serviceAccountKey.json
+
+# Local runtime and development logs
+*.log
